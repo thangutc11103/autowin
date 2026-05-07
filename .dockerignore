@@ -1,0 +1,12 @@
+# .dockerignore
+node_modules
+npm-debug.log
+.git
+.gitignore
+README.md
+.next/cache
+.env
+.env.local
+.DS_Store
+dist
+build

@@ -1,0 +1,53 @@
+# Dockerfile for Next.js + Worker Service (Production)
+
+# Stage 1: Build
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy dependency files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source
+COPY . .
+
+# Build Next.js
+RUN npm run build
+
+# Stage 2: Runtime
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dumb-init for proper signal handling
+RUN apk add --no-cache dumb-init
+
+# Copy from builder
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/public ./public
+
+# Environment
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Expose ports
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+# Run with dumb-init to properly handle signals
+ENTRYPOINT ["dumb-init", "--"]
+
+# Default: Start Next.js server
+CMD ["npm", "start"]
+
+# Alternative: Start worker (override with: docker run ... npx ts-node scripts/worker.ts)
+# CMD ["npx", "ts-node", "scripts/worker.ts"]
