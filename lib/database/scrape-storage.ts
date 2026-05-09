@@ -41,7 +41,7 @@ function getPool(): Pool {
       max: 5,
     });
 
-    pool.on("error", (error) => {
+    pool.on("error", (error: Error) => {
       console.error("[DATABASE] Unexpected pool error:", error.message);
     });
   }
