@@ -6,86 +6,260 @@
  * Lưu ý: Cần Redis server running và Next.js đang chạy để submit jobs
  */
 
-import { Worker } from 'bullmq';
-import Redis from 'ioredis';
-import type { CrawlJobData } from '@/types/job';
+import { Worker } from "bullmq";
+import Redis from "ioredis";
+import { chromium, type Page } from "playwright";
+import {
+  closeScrapeStorage,
+  ensureScrapeStorage,
+  getConfiguredDatabaseHost,
+  saveFailedScrape,
+  saveSuccessfulScrape,
+} from "@/lib/database/scrape-storage";
+import type { CrawlJobData } from "@/types/job";
+import type { ScrapeResult, ScrapedVideo } from "@/types/scrape";
+import type { Platform } from "@/types/video";
 
 // 1. Connect to same Redis instance
 const redis = new Redis({
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
+  host: process.env.REDIS_HOST || "localhost",
+  port: parseInt(process.env.REDIS_PORT || "6379"),
   password: process.env.REDIS_PASSWORD,
   db: 0,
   maxRetriesPerRequest: null,
 });
 
-redis.on('connect', () => {
-  console.log('[EXTERNAL SCRAPER] ✅ Connected to Redis');
+redis.on("connect", () => {
+  console.log("[EXTERNAL SCRAPER] ✅ Connected to Redis");
 });
 
-redis.on('error', (err) => {
-  console.error('[EXTERNAL SCRAPER] ❌ Redis error:', err.message);
+redis.on("error", (err) => {
+  console.error("[EXTERNAL SCRAPER] ❌ Redis error:", err.message);
 });
 
-// 2. Mock Playwright Scraper (Replace with real Playwright later)
-async function playwrightScraper(jobData: CrawlJobData): Promise<{
-  videos: any[];
-  totalCount: number;
-  platform: string;
-  scrapedAt: string;
-}> {
+const DEFAULT_LIMIT = 10;
+const DEFAULT_NAVIGATION_TIMEOUT_MS = 45000;
+const DEFAULT_SETTLE_TIMEOUT_MS = 2500;
+
+const PLATFORM_VIDEO_PATTERNS: Record<Platform, RegExp[]> = {
+  tiktok: [/\/video\//i],
+  douyin: [/\/video\//i],
+  youtube: [/\/watch\?/i, /\/shorts\//i],
+  facebook: [/\/reel\//i, /\/videos\//i, /\/watch\//i],
+  instagram: [/\/reel\//i, /\/p\//i],
+};
+
+interface DomCandidate {
+  href: string;
+  title: string;
+  ariaLabel: string;
+  text: string;
+  thumbnail: string | null;
+}
+
+function normalizeAbsoluteUrl(href: string, baseUrl: string): string | null {
+  if (!href.trim()) {
+    return null;
+  }
+
+  try {
+    return new URL(href, baseUrl).toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeTitle(candidate: DomCandidate): string | null {
+  const rawTitle = candidate.title || candidate.ariaLabel || candidate.text;
+  const normalized = rawTitle.replace(/\s+/g, " ").trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function isVideoUrl(platform: Platform, url: string): boolean {
+  return PLATFORM_VIDEO_PATTERNS[platform].some((pattern) => pattern.test(url));
+}
+
+function extractVideoId(url: string): string {
+  const match = url.match(/(?:video|reel|shorts|watch\/?|v=)([A-Za-z0-9_-]+)/i);
+  if (match?.[1]) {
+    return match[1];
+  }
+
+  return Buffer.from(url).toString("base64url").slice(0, 32);
+}
+
+function extractViews(text: string): number | null {
+  const match = text.match(/(\d[\d.,]*)\s*(k|m|b)?\s*(views|lượt xem)?/i);
+  if (!match) {
+    return null;
+  }
+
+  const value = Number.parseFloat(match[1].replace(/,/g, ""));
+  if (Number.isNaN(value)) {
+    return null;
+  }
+
+  const multiplier = match[2]?.toLowerCase();
+  if (multiplier === "k") {
+    return Math.round(value * 1_000);
+  }
+  if (multiplier === "m") {
+    return Math.round(value * 1_000_000);
+  }
+  if (multiplier === "b") {
+    return Math.round(value * 1_000_000_000);
+  }
+
+  return Math.round(value);
+}
+
+async function autoScroll(page: Page): Promise<void> {
+  for (let index = 0; index < 2; index += 1) {
+    await page.evaluate(() => {
+      window.scrollBy(0, window.innerHeight);
+    });
+    await page.waitForTimeout(750);
+  }
+}
+
+async function extractDomCandidates(
+  page: Page,
+): Promise<DomCandidate[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLAnchorElement>("a[href]")).map(
+      (anchor) => {
+        const image = anchor.querySelector("img");
+
+        return {
+          href: anchor.getAttribute("href") ?? "",
+          title:
+            anchor.getAttribute("title") ??
+            image?.getAttribute("alt") ??
+            "",
+          ariaLabel: anchor.getAttribute("aria-label") ?? "",
+          text: anchor.textContent?.trim() ?? "",
+          thumbnail: image?.getAttribute("src") ?? null,
+        };
+      },
+    ),
+  );
+}
+
+function mapCandidatesToVideos(
+  jobData: CrawlJobData,
+  pageUrl: string,
+  candidates: DomCandidate[],
+): ScrapedVideo[] {
+  const videos: ScrapedVideo[] = [];
+  const seenUrls = new Set<string>();
+  const limit = jobData.limit ?? DEFAULT_LIMIT;
+
+  for (const candidate of candidates) {
+    const absoluteUrl = normalizeAbsoluteUrl(candidate.href, pageUrl);
+
+    if (!absoluteUrl || seenUrls.has(absoluteUrl) || !isVideoUrl(jobData.platform, absoluteUrl)) {
+      continue;
+    }
+
+    const title = normalizeTitle(candidate);
+    if (!title) {
+      continue;
+    }
+
+    seenUrls.add(absoluteUrl);
+    videos.push({
+      externalId: extractVideoId(absoluteUrl),
+      title,
+      url: absoluteUrl,
+      platform: jobData.platform,
+      views: extractViews(`${candidate.text} ${candidate.ariaLabel}`),
+      thumbnail: normalizeAbsoluteUrl(candidate.thumbnail ?? "", pageUrl),
+      crawledAt: new Date().toISOString(),
+      rawPayload: {
+        anchorText: candidate.text,
+        ariaLabel: candidate.ariaLabel,
+      },
+    });
+
+    if (videos.length >= limit) {
+      break;
+    }
+  }
+
+  return videos;
+}
+
+async function playwrightScraper(jobData: CrawlJobData): Promise<ScrapeResult> {
   console.log(`[SCRAPER] Scraping ${jobData.platform} - ${jobData.type}: ${jobData.value}`);
   console.log(`[SCRAPER] URL: ${jobData.targetUrl}`);
 
-  // Simulate Playwright scraping (replace with real Playwright)
-  await new Promise((resolve) => setTimeout(resolve, 2000)); // 2s delay
+  const browser = await chromium.launch({
+    headless: process.env.PLAYWRIGHT_HEADLESS !== "false",
+  });
+  const context = await browser.newContext({
+    viewport: { width: 1366, height: 768 },
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+  });
+  const page = await context.newPage();
 
-  // Mock data - will replace with real scraping
-  const mockVideos = Array.from({ length: jobData.limit }, (_, i) => ({
-    id: `video-${jobData.jobId}-${i}`,
-    title: `${jobData.value} - Video ${i + 1}`,
-    author: `Author ${i}`,
-    views: Math.floor(Math.random() * 1000000),
-    url: `https://${jobData.platform}.com/video/${i}`,
-    platform: jobData.platform,
-    crawledAt: new Date().toISOString(),
-  }));
+  try {
+    await page.goto(jobData.targetUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: DEFAULT_NAVIGATION_TIMEOUT_MS,
+    });
+    await page.waitForTimeout(DEFAULT_SETTLE_TIMEOUT_MS);
+    await autoScroll(page);
 
-  return {
-    videos: mockVideos,
-    totalCount: mockVideos.length,
-    platform: jobData.platform,
-    scrapedAt: new Date().toISOString(),
-  };
+    const candidates = await extractDomCandidates(page);
+    const videos = mapCandidatesToVideos(jobData, page.url(), candidates);
+
+    return {
+      videos,
+      totalCount: videos.length,
+      platform: jobData.platform,
+      scrapedAt: new Date().toISOString(),
+    };
+  } finally {
+    await context.close();
+    await browser.close();
+  }
 }
 
 // 3. Create BullMQ Worker (Better than manual subscription)
 const worker = new Worker(
-  'crawl-tasks',
+  "crawl-tasks",
   async (job) => {
     console.log(`\n[JOB ${job.id}] ⏳ Processing...`);
     console.log(`[JOB ${job.id}] Data:`, job.data);
 
     try {
-      // Get job data
       const jobData = job.data as CrawlJobData;
+      const persistedJobId = String(job.id ?? jobData.jobId ?? "");
 
-      // Call Playwright scraper
       const scrapedData = await playwrightScraper(jobData);
+      const databaseResult = await saveSuccessfulScrape({
+        jobData,
+        jobId: persistedJobId,
+        result: scrapedData,
+      });
 
       console.log(`[JOB ${job.id}] ✅ Scraped ${scrapedData.totalCount} videos`);
+      console.log(`[JOB ${job.id}] 💾 Saved ${databaseResult.savedVideos} videos to Supabase`);
 
-      // 4. Store results in Redis
       const resultKey = `results:${jobData.batchId}:${job.id}`;
       await redis.setex(
         resultKey,
-        3600, // TTL 1 hour
-        JSON.stringify(scrapedData)
+        3600,
+        JSON.stringify({
+          ...scrapedData,
+          storedInDatabase: true,
+          storedJobId: databaseResult.jobId,
+        }),
       );
 
       console.log(`[JOB ${job.id}] 💾 Stored in Redis: ${resultKey}`);
 
-      // Also store in batch results list
       await redis.lpush(
         `results:batch:${jobData.batchId}`,
         JSON.stringify({
@@ -95,6 +269,7 @@ const worker = new Worker(
           value: jobData.value,
           videoCount: scrapedData.totalCount,
           completedAt: new Date().toISOString(),
+          storedInDatabase: true,
         })
       );
 
@@ -106,12 +281,25 @@ const worker = new Worker(
         success: true,
         itemsFound: scrapedData.totalCount,
         resultKey,
+        storedInDatabase: true,
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error(`[JOB ${job.id}] ❌ ERROR:`, errorMsg);
 
-      // Store error in Redis
+      const jobData = job.data as CrawlJobData;
+      try {
+        await saveFailedScrape({
+          jobData,
+          jobId: String(job.id ?? jobData.jobId ?? ""),
+          errorMessage: errorMsg,
+        });
+      } catch (databaseError) {
+        const message =
+          databaseError instanceof Error ? databaseError.message : String(databaseError);
+        console.error(`[JOB ${job.id}] ❌ DATABASE ERROR:`, message);
+      }
+
       const errorKey = `errors:${job.id}`;
       await redis.setex(
         errorKey,
@@ -123,54 +311,66 @@ const worker = new Worker(
         })
       );
 
-      // Re-throw để BullMQ trigger retry
       throw error;
     }
   },
   {
     connection: redis,
-    concurrency: 2, // Start with 2 để test, increase sau
+    concurrency: 2,
   }
 );
 
-// Event listeners
-worker.on('ready', () => {
-  console.log('[WORKER] 🟢 Worker ready and listening...');
+worker.on("ready", () => {
+  console.log("[WORKER] 🟢 Worker ready and listening...");
 });
 
-worker.on('completed', (job) => {
+worker.on("completed", (job) => {
   console.log(`[COMPLETED] ✅ Job ${job.id} completed successfully`);
 });
 
-worker.on('failed', (job, err) => {
+worker.on("failed", (job, err) => {
   console.log(
     `[FAILED] ❌ Job ${job?.id} failed after ${job?.attemptsMade} attempts: ${err.message}`
   );
-
-  // If max retries exceeded, it auto goes to failed state
-  // BullMQ will handle retry based on config
 });
 
-worker.on('active', (job) => {
+worker.on("active", (job) => {
   console.log(`[ACTIVE] ⚡ Job ${job.id} started processing`);
 });
 
-worker.on('stalled', (jobId) => {
+worker.on("stalled", (jobId) => {
   console.warn(`[STALLED] ⚠️  Job ${jobId} stalled (taking too long)`);
 });
 
-// Graceful shutdown
 async function shutdown() {
-  console.log('\n[SHUTDOWN] Closing worker and Redis...');
+  console.log("\n[SHUTDOWN] Closing worker and Redis...");
   await worker.close();
+  await closeScrapeStorage();
   await redis.quit();
-  console.log('[SHUTDOWN] ✅ All connections closed');
+  console.log("[SHUTDOWN] ✅ All connections closed");
   process.exit(0);
 }
 
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
 
-console.log('[EXTERNAL SCRAPER] 🚀 Starting...');
-console.log(`[EXTERNAL SCRAPER] Redis: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || '6379'}`);
-console.log('[EXTERNAL SCRAPER] Waiting for jobs from queue...\n');
+async function main() {
+  console.log("[EXTERNAL SCRAPER] 🚀 Starting...");
+  console.log(
+    `[EXTERNAL SCRAPER] Redis: ${process.env.REDIS_HOST || "localhost"}:${process.env.REDIS_PORT || "6379"}`,
+  );
+
+  await ensureScrapeStorage();
+  console.log(
+    `[EXTERNAL SCRAPER] Database: ${getConfiguredDatabaseHost() ?? "configured"}`,
+  );
+  console.log("[EXTERNAL SCRAPER] Waiting for jobs from queue...\n");
+}
+
+main().catch(async (error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error("[EXTERNAL SCRAPER] ❌ Startup failed:", message);
+  await closeScrapeStorage();
+  await redis.quit();
+  process.exit(1);
+});
