@@ -102,7 +102,7 @@ export default function FilterPanel() {
         try {
             const request: DecomposeFilterRequest = {
                 platform,
-                filters: processedFilters as any,
+                filters: processedFilters as DecomposeFilterRequest['filters'],
             };
 
             const response = await fetch('/api/filter/decompose', {
@@ -114,8 +114,22 @@ export default function FilterPanel() {
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to submit filters');
+                const contentType = response.headers.get('content-type') ?? '';
+                const errorText = await response.text();
+                let errorMessage = 'Failed to submit filters';
+
+                if (contentType.includes('application/json')) {
+                    try {
+                        const errorData = JSON.parse(errorText) as { error?: string };
+                        errorMessage = errorData.error || errorMessage;
+                    } catch {
+                        errorMessage = errorText || errorMessage;
+                    }
+                } else if (errorText.trim()) {
+                    errorMessage = errorText;
+                }
+
+                throw new Error(errorMessage);
             }
 
             const result: JobSubmissionResult = await response.json();
