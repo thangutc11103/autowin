@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
 
     const jobsWithIds = jobs.map((job, index) => ({
       ...job,
-      jobId: `${batchId}-${index}-${crypto.randomUUID().slice(0, 8)}`,
+      jobId: `${batchId}-${index}`,
     }));
 
     await addBulkCrawlJobs(jobsWithIds);
