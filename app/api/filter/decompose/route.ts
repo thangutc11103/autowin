@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
         ? Math.min(body.filters.limit, 100)
         : 30;
 
-    const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const batchId = `batch-${crypto.randomUUID()}`;
     const jobs: CrawlJobData[] = [];
 
     for (const [key, value] of Object.entries(body.filters)) {
@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
 
     const jobsWithIds = jobs.map((job, index) => ({
       ...job,
-      jobId: `${batchId}-${index}`,
+      jobId: `${batchId}-${index}-${crypto.randomUUID().slice(0, 8)}`,
     }));
 
     await addBulkCrawlJobs(jobsWithIds);
