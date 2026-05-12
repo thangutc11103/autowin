@@ -1,5 +1,6 @@
 import type { Platform } from "@/types/video";
 import type { JobType } from "@/types/job";
+import { TikTokDecodoScraper } from "./tiktok-decodo-scraper";
 
 /**
  * Strategy Pattern: Factory để tạo các Scraper khác nhau cho từng nền tảng
@@ -10,18 +11,73 @@ export interface ScraperStrategy {
   crawl(url: string, type: JobType): Promise<any>;
 }
 
-// Example Scraper cho TikTok
+// Production Scraper cho TikTok - Sử dụng Decodo API + Cheerio
+// Không cần Playwright, không cần Proxy
 class TikTokScraper implements ScraperStrategy {
-  async crawl(url: string, type: JobType): Promise<any> {
-    // TODO: Implement TikTok crawling logic
-    // Sử dụng Playwright + stealth plugin để vượt qua anti-bot
-    console.log(`Crawling TikTok ${type}: ${url}`);
-    return {
-      platform: "tiktok",
-      type,
-      url,
-      data: {},
-    };
+  private decodoScraper = new TikTokDecodoScraper();
+  /**
+   * Crawl TikTok using Decodo API + Cheerio (Production-ready)
+   * No Playwright needed, automatic bot detection handling
+   */
+  async crawl(url: string, type: JobType) {
+    try {
+      console.log(`[TikTok] Crawling ${type}: ${url}`);
+
+      // Extract hashtag from URL (if applicable)
+      // URL format: https://www.tiktok.com/tag/{hashtag}
+      const hashtagMatch = url.match(/\/tag\/([^/?]+)/);
+      const hashtag = hashtagMatch?.[1];
+
+      if (!hashtag) {
+        throw new Error("Invalid TikTok hashtag URL");
+      }
+
+      // Use Decodo scraper to fetch hashtag page
+      const result = await this.decodoScraper.crawlHashtag(hashtag);
+
+      if (!result.success || !result.data) {
+        return {
+          platform: "tiktok",
+          type,
+          url,
+          count: 0,
+          data: [],
+          error: "Failed to crawl hashtag",
+        };
+      }
+
+      // Transform to factory format
+      const videos = result.data.map((v: any) => ({
+        video_url: v.video_url,
+        video_id: v.video_id,
+        author: v.author,
+        platform: "tiktok",
+        title: `${v.author}'s TikTok`,
+        views: null, // Will be null until we enrich with metadata
+      }));
+
+      console.log(`[TikTok] Found ${videos.length} videos`);
+
+      return {
+        platform: "tiktok",
+        type,
+        url,
+        count: videos.length,
+        data: videos,
+      };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`[TikTok Error] ${msg}`);
+
+      return {
+        platform: "tiktok",
+        type,
+        url,
+        data: [],
+        count: 0,
+        error: msg,
+      };
+    }
   }
 }
 

@@ -1,8 +1,8 @@
 import { Queue } from "bullmq";
 import { getRedis } from "./redis";
-import type { CrawlJobData } from "@/types/1";
+import type { CrawlJobData } from "@/types/job";
 
-let crawlQueue: Queue<CrawlJobData>;
+let crawlQueue: Queue<CrawlJobData> | null = null;
 
 export function getCrawlQueue(): Queue<CrawlJobData> {
   if (!crawlQueue) {
@@ -21,14 +21,6 @@ export function getCrawlQueue(): Queue<CrawlJobData> {
         },
       },
     });
-
-    crawlQueue.on("failed", (job, err) => {
-      console.error(`Job ${job.id} failed:`, err.message);
-    });
-
-    crawlQueue.on("completed", (job) => {
-      console.log(`Job ${job.id} completed`);
-    });
   }
 
   return crawlQueue;
@@ -39,7 +31,7 @@ export async function addCrawlJob(jobData: CrawlJobData): Promise<string> {
   const job = await queue.add("crawl", jobData, {
     jobId: jobData.jobId,
   });
-  return job.id;
+  return job.id || jobData.jobId || "unknown";
 }
 
 export async function addBulkCrawlJobs(
@@ -55,12 +47,12 @@ export async function addBulkCrawlJobs(
       },
     })),
   );
-  return jobs.map((job) => job.id);
+  return jobs.map((job) => job.id || job.data?.jobId || "unknown");
 }
 
 export async function closeQueue(): Promise<void> {
   if (crawlQueue) {
     await crawlQueue.close();
-    crawlQueue = null as any;
+    crawlQueue = null;
   }
 }

@@ -15,7 +15,13 @@ export interface ScrapedVideo {
 
 export interface ScrapeResult {
   videos: ScrapedVideo[];
-  totalCount: number;
-  platform: Platform;
-  scrapedAt: string;
+  totalCount?: number;
+  platform?: Platform;
+  scrapedAt?: string;
+  metadata?: {
+    platform?: string;
+    type?: string;
+    value?: string;
+    url?: string;
+  };
 }

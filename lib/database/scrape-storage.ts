@@ -187,11 +187,14 @@ export async function saveSuccessfulScrape(params: {
         ],
       );
 
-      await client.query("DELETE FROM scraped_videos WHERE job_id = $1", [jobId]);
+      await client.query("DELETE FROM scraped_videos WHERE job_id = $1", [
+        jobId,
+      ]);
 
       if (params.result.videos.length > 0) {
         const placeholders: string[] = [];
-        const values: Array<string | number | null | Record<string, unknown>> = [];
+        const values: Array<string | number | null | Record<string, unknown>> =
+          [];
 
         params.result.videos.forEach((video, index) => {
           const offset = index * 13;
@@ -248,13 +251,13 @@ export async function saveSuccessfulScrape(params: {
               entry.video_id,
               entry.title,
               entry.author,
-              entry.views,
+              entry.views::BIGINT,
               entry.video_url,
               entry.thumbnail_url,
-              entry.uploaded_at,
-              entry.raw_payload,
-              (entry.raw_payload->>'crawledAt')::TIMESTAMPTZ,
-              (entry.raw_payload->>'scrapedAt')::TIMESTAMPTZ
+              entry.uploaded_at::TIMESTAMPTZ,
+              entry.raw_payload::JSONB,
+              (entry.raw_payload::JSONB->>'crawledAt')::TIMESTAMPTZ,
+              (entry.raw_payload::JSONB->>'scrapedAt')::TIMESTAMPTZ
             FROM (
               VALUES ${placeholders.join(", ")}
             ) AS entry (

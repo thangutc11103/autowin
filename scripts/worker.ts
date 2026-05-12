@@ -5,10 +5,15 @@
  * File này khởi động Worker để xử lý các job từ Redis queue
  */
 
+// Load .env.local trước tất cả
+import * as dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
+
 import { Worker, QueueEvents } from "bullmq";
 import { getRedis } from "@/lib/redis";
 import { ScraperFactory } from "@/lib/scrapers/scraper-factory";
-import type { CrawlJobData } from "@/types/1";
+import { saveSuccessfulScrape } from "@/lib/database/scrape-storage";
+import type { CrawlJobData } from "@/types/job";
 
 /**
  * Setup Worker Processor
@@ -36,37 +41,149 @@ function setupWorker() {
         // 50% - Get Scraper Strategy
         await job.updateProgress(50);
         const scraper = ScraperFactory.getScraper(platform);
-        console.log(`[JOB ${job.id}] ✓ Scraper initialized`);
+        console.log(
+          `[JOB ${job.id}] ✓ Scraper initialized for platform: ${platform}`,
+        );
 
         // 75% - Execute Crawl
         await job.updateProgress(75);
         console.log(`[JOB ${job.id}] ⧖ Crawling...`);
 
-        const result = await scraper.crawl(targetUrl, type);
-        console.log(`[JOB ${job.id}] ✓ Crawl completed`);
+        const scrapeResult = await scraper.crawl(targetUrl, type);
+
+        // Log raw scrapeResult
+        console.log(`[JOB ${job.id}] 📊 Scrape Result:`);
+        console.log(`   Type: ${typeof scrapeResult}`);
+        console.log(`   Keys: ${Object.keys(scrapeResult).join(", ")}`);
+        console.log(`   data type: ${typeof scrapeResult?.data}`);
+        console.log(`   data value:`, scrapeResult?.data);
+
+        const videosFound = scrapeResult?.data
+          ? Array.isArray(scrapeResult.data)
+            ? scrapeResult.data.length
+            : Object.keys(scrapeResult.data).length
+          : 0;
+
+        console.log(
+          `[JOB ${job.id}] ✓ Crawl completed - Found ${videosFound} videos`,
+        );
+
+        // 85% - Save to Supabase Database
+        await job.updateProgress(85);
+        console.log(
+          `[JOB ${job.id}] 💾 Saving ${videosFound} videos to Supabase...`,
+        );
+
+        let dbResult = null;
+        let savedCount = 0;
+
+        if (videosFound > 0) {
+          try {
+            console.log(
+              `[JOB ${job.id}] 🔄 Mapping videos to database format...`,
+            );
+
+            // Map scraped videos to ScrapeResult format
+            const videosArray = Array.isArray(scrapeResult.data)
+              ? scrapeResult.data
+              : Object.values(scrapeResult.data || {});
+
+            console.log(
+              `[JOB ${job.id}] Converting ${videosArray.length} videos...`,
+            );
+
+            const mappedVideos = videosArray.map((video: any) => {
+              const mapped = {
+                externalId: video.video_id || `${platform}_${video.title}`,
+                title: video.title,
+                url: video.video_url,
+                platform: platform as any,
+                author: video.author || undefined,
+                views: video.views || undefined,
+                thumbnail: video.thumbnail_url || undefined,
+                uploadedAt: video.uploaded_at,
+                crawledAt: new Date().toISOString(),
+                rawPayload: video.rawPayload || {},
+              };
+              return mapped;
+            });
+
+            console.log(
+              `[JOB ${job.id}] ✓ Mapped ${mappedVideos.length} videos`,
+            );
+            if (mappedVideos.length > 0) {
+              console.log(
+                `[JOB ${job.id}] Sample mapped video:`,
+                JSON.stringify(mappedVideos[0], null, 2),
+              );
+            }
+
+            dbResult = await saveSuccessfulScrape({
+              jobData: job.data,
+              jobId: job.id,
+              result: {
+                videos: mappedVideos,
+                totalCount: mappedVideos.length,
+                platform,
+                scrapedAt: new Date().toISOString(),
+                metadata: {
+                  platform,
+                  type,
+                  value,
+                  url: targetUrl,
+                },
+              },
+            });
+            savedCount = dbResult.savedVideos;
+            console.log(
+              `[JOB ${job.id}] ✅ Saved ${savedCount} videos to Supabase`,
+            );
+            console.log(`[JOB ${job.id}] Database result:`, dbResult);
+
+            // Log each saved video
+            mappedVideos.slice(0, 3).forEach((video: any, idx: number) => {
+              console.log(`   [${idx + 1}] "${video.title}" - ${video.url}`);
+            });
+            if (videosFound > 3) {
+              console.log(`   ... and ${videosFound - 3} more`);
+            }
+          } catch (dbError) {
+            const dbMsg =
+              dbError instanceof Error ? dbError.message : String(dbError);
+            console.error(`[JOB ${job.id}] ❌ Database save failed: ${dbMsg}`);
+            console.error(dbError);
+            console.log(`[JOB ${job.id}] This job will be retried...`);
+            throw new Error(`Database save failed: ${dbMsg}`);
+          }
+        } else {
+          console.log(`[JOB ${job.id}] ⚠️ No videos found to save`);
+        }
 
         // 100% - Return result
         await job.updateProgress(100);
 
         const output = {
           jobId: job.id,
+          batchId: job.data.batchId,
           platform,
           type,
           value,
+          targetUrl,
           success: true,
-          itemsFound: Math.floor(Math.random() * 100), // Mock data
+          videosFound,
+          savedToSupabase: savedCount,
           completedAt: new Date().toISOString(),
-          result,
         };
 
-        console.log(`[JOB ${job.id}] ✅ SUCCESS`);
-        console.log(JSON.stringify(output, null, 2));
+        console.log(`[JOB ${job.id}] ✅ JOB COMPLETE`);
+        console.log(`   Found: ${videosFound} | Saved to DB: ${savedCount}`);
         console.log(`${"=".repeat(60)}\n`);
 
         return output;
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.error(`[JOB ${job.id}] ❌ ERROR: ${errorMsg}`);
+        console.error(error);
         console.log(`${"=".repeat(60)}\n`);
         throw error; // BullMQ will handle retry
       }

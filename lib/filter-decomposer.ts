@@ -1,133 +1,113 @@
-import type {
-  CrawlJobData,
-  DecomposeFilterRequest,
-  JobType,
-} from "@/types/job";
-import { FILTER_KEY_TO_JOB_TYPE } from "@/types/job";
-import type { Platform } from "@/types/video";
+/**
+ * Filter Decomposer (Simplified)
+ *
+ * Converts filter requests into crawl jobs.
+ * In the new Decodo + Queue solution, this is minimal.
+ * Most filtering happens at the scraper level.
+ */
 
-const TARGET_URLS: Record<
-  Platform,
-  Record<JobType, (value: string) => string>
-> = {
-  tiktok: {
-    hashtag: (tag) => `https://www.tiktok.com/tag/${encodeURIComponent(tag)}`,
-    category: (cat) =>
-      `https://www.tiktok.com/discover/${encodeURIComponent(cat)}`,
-    account: (account) => `https://www.tiktok.com/@${account}`,
-  },
-  douyin: {
-    hashtag: (tag) =>
-      `https://www.douyin.com/search/${encodeURIComponent(tag)}`,
-    category: (cat) =>
-      `https://www.douyin.com/discover/${encodeURIComponent(cat)}`,
-    account: (account) => `https://www.douyin.com/user/${account}`,
-  },
-  facebook: {
-    hashtag: (tag) =>
-      `https://www.facebook.com/search/?q=${encodeURIComponent(tag)}`,
-    category: (cat) =>
-      `https://www.facebook.com/search/?q=${encodeURIComponent(cat)}`,
-    account: (account) =>
-      `https://www.facebook.com/search/?q=${encodeURIComponent(account)}`,
-  },
-  instagram: {
-    hashtag: (tag) =>
-      `https://www.instagram.com/explore/tags/${encodeURIComponent(tag)}/`,
-    category: (cat) =>
-      `https://www.instagram.com/explore/tags/${encodeURIComponent(cat)}/`,
-    account: (account) => `https://www.instagram.com/${account}/`,
-  },
-  youtube: {
-    hashtag: (tag) =>
-      `https://www.youtube.com/results?search_query=${encodeURIComponent(tag)}`,
-    category: (cat) =>
-      `https://www.youtube.com/results?search_query=${encodeURIComponent(cat)}`,
-    account: (account) => `https://www.youtube.com/@${account}`,
-  },
-};
+import type { CrawlJobData } from "@/types/job";
 
-export function decomposeFilters(
-  request: DecomposeFilterRequest,
-): CrawlJobData[] {
-  const jobs: CrawlJobData[] = [];
-  const batchId = `batch-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  const { platform, filters } = request;
-  const limit = filters.limit || 10;
-
-  // Iterate through each filter type
-  Object.entries(filters).forEach(([key, values]) => {
-    if (key === "limit" || !values || values.length === 0) {
-      return;
-    }
-
-    const jobType = FILTER_KEY_TO_JOB_TYPE[key];
-    if (!jobType) {
-      console.warn(`Unknown filter key: ${key}`);
-      return;
-    }
-
-    // Ensure values is an array
-    const valueArray = Array.isArray(values) ? values : [values];
-
-    valueArray.forEach((value, index) => {
-      if (!value || value.toString().trim() === "") {
-        return;
-      }
-
-      const cleanValue = value.toString().trim();
-      const urlBuilder = TARGET_URLS[platform]?.[jobType];
-
-      if (!urlBuilder) {
-        console.warn(
-          `No URL builder for platform: ${platform}, type: ${jobType}`,
-        );
-        return;
-      }
-
-      const jobId = `${batchId}-${key}-${index}`;
-      const job: CrawlJobData = {
-        platform,
-        type: jobType,
-        value: cleanValue,
-        targetUrl: urlBuilder(cleanValue),
-        limit,
-        jobId,
-        batchId,
-        createdAt: new Date().toISOString(),
-      };
-
-      jobs.push(job);
-    });
-  });
-
-  return jobs;
+export interface DecomposeFilterRequest {
+  platform: "tiktok" | "douyin" | "youtube" | "facebook" | "instagram";
+  filters: Array<{
+    type: "hashtag" | "user" | "search";
+    value: string;
+  }>;
 }
 
-export function validateFilterRequest(request: DecomposeFilterRequest): {
+export interface ValidationResult {
   valid: boolean;
   error?: string;
-} {
+}
+
+/**
+ * Validate filter request format
+ */
+export function validateFilterRequest(
+  request: DecomposeFilterRequest,
+): ValidationResult {
   if (!request.platform) {
     return { valid: false, error: "Platform is required" };
   }
 
-  if (!request.filters || typeof request.filters !== "object") {
-    return { valid: false, error: "Filters object is required" };
+  if (!request.filters || !Array.isArray(request.filters)) {
+    return { valid: false, error: "Filters must be an array" };
   }
 
-  const hasFilters = Object.keys(request.filters).some((key) => {
-    if (key === "limit") return false;
-    const value = request.filters[key];
-    return (
-      value &&
-      (Array.isArray(value) ? value.length > 0 : value.toString().trim() !== "")
-    );
-  });
+  if (request.filters.length === 0) {
+    return { valid: false, error: "At least one filter is required" };
+  }
 
-  if (!hasFilters) {
-    return { valid: false, error: "At least one filter value is required" };
+  for (const filter of request.filters) {
+    if (!filter.type || !filter.value) {
+      return {
+        valid: false,
+        error: "Each filter must have 'type' and 'value' fields",
+      };
+    }
   }
 
   return { valid: true };
+}
+
+/**
+ * Decompose filters into atomic crawl jobs
+ * In new solution: 1 filter = 1 job (no complex decomposition needed)
+ */
+export function decomposeFilters(
+  request: DecomposeFilterRequest,
+): CrawlJobData[] {
+  const jobs: CrawlJobData[] = [];
+
+  for (const filter of request.filters) {
+    const targetUrl = buildTargetUrl(
+      request.platform,
+      filter.type,
+      filter.value,
+    );
+
+    const job: CrawlJobData = {
+      platform: request.platform,
+      type: filter.type,
+      value: filter.value,
+      targetUrl,
+      limit: 30, // Default limit
+    };
+
+    jobs.push(job);
+  }
+
+  return jobs;
+}
+
+/**
+ * Build target URL based on platform and filter type
+ */
+function buildTargetUrl(platform: string, type: string, value: string): string {
+  switch (platform) {
+    case "tiktok":
+      if (type === "hashtag") {
+        return `https://www.tiktok.com/tag/${encodeURIComponent(value)}`;
+      } else if (type === "user") {
+        return `https://www.tiktok.com/@${encodeURIComponent(value)}`;
+      } else if (type === "search") {
+        return `https://www.tiktok.com/search?q=${encodeURIComponent(value)}`;
+      }
+      break;
+
+    case "douyin":
+      if (type === "hashtag") {
+        return `https://www.douyin.com/search/${encodeURIComponent(value)}`;
+      }
+      break;
+
+    case "youtube":
+      return `https://www.youtube.com/results?search_query=${encodeURIComponent(value)}`;
+
+    default:
+      return "";
+  }
+
+  return "";
 }

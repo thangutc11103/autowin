@@ -98,7 +98,6 @@ find-app/
 │   ├── scrapers/
 │   │   └── scraper-factory.ts   # Strategy pattern for scrapers
 │   └── workers/
-│       └── crawl-worker.example.ts  # Worker processor example
 ├── app/api/
 │   └── filter/
 │       └── decompose/

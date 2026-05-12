@@ -68,13 +68,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Create a map of job id to state
+    const jobStateMap = new Map<string, string>();
+    waitingJobs.forEach((job) => jobStateMap.set(job.id || "", "waiting"));
+    activeJobs.forEach((job) => jobStateMap.set(job.id || "", "active"));
+    completedJobs.forEach((job) => jobStateMap.set(job.id || "", "completed"));
+    failedJobs.forEach((job) => jobStateMap.set(job.id || "", "failed"));
+
     // Map job data để dễ read
     const jobsData = filteredJobs.map((job) => {
       try {
         return {
           id: job.id || "unknown",
           data: job.data || {},
-          state: job._state || "unknown",
+          state: jobStateMap.get(job.id || "") || "unknown",
           progress: typeof job.progress === "function" ? job.progress() : 0,
           attempts: job.attemptsMade || 0,
           maxAttempts: job.opts?.attempts || 0,
@@ -93,7 +100,7 @@ export async function GET(request: NextRequest) {
         return {
           id: job.id || "unknown",
           data: {},
-          state: "error",
+          state: jobStateMap.get(job.id || "") || "error",
           progress: 0,
           attempts: 0,
           maxAttempts: 0,
