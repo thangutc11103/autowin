@@ -49,7 +49,7 @@ function setupWorker() {
         await job.updateProgress(75);
         console.log(`[JOB ${job.id}] ⧖ Crawling...`);
 
-        const scrapeResult = await scraper.crawl(targetUrl, type);
+        const scrapeResult = await scraper.crawl(targetUrl, type, limit);
 
         // Log raw scrapeResult
         console.log(`[JOB ${job.id}] 📊 Scrape Result:`);

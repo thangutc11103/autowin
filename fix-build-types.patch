@@ -1,0 +1,64 @@
+diff --git a/lib/filter-decomposer.ts b/lib/filter-decomposer.ts
+index b9f725b..bd0304f 100644
+--- a/lib/filter-decomposer.ts
++++ b/lib/filter-decomposer.ts
+@@ -6,12 +6,14 @@
+  * Most filtering happens at the scraper level.
+  */
+ 
+-import type { CrawlJobData } from "@/types/job";
++import type { CrawlJobData, JobType } from "@/types/job";
++
++type LegacyFilterType = "hashtag" | "user" | "search";
+ 
+ export interface DecomposeFilterRequest {
+   platform: "tiktok" | "douyin" | "youtube" | "facebook" | "instagram";
+   filters: Array<{
+-    type: "hashtag" | "user" | "search";
++    type: LegacyFilterType;
+     value: string;
+   }>;
+ }
+@@ -69,7 +71,7 @@ export function decomposeFilters(
+ 
+     const job: CrawlJobData = {
+       platform: request.platform,
+-      type: filter.type,
++      type: mapFilterTypeToJobType(filter.type),
+       value: filter.value,
+       targetUrl,
+       limit: 30, // Default limit
+@@ -111,3 +113,16 @@ function buildTargetUrl(platform: string, type: string, value: string): string {
+ 
+   return "";
+ }
++
++
++function mapFilterTypeToJobType(type: LegacyFilterType): JobType {
++  if (type === "user") {
++    return "account";
++  }
++
++  if (type === "search") {
++    return "category";
++  }
++
++  return type;
++}
+diff --git a/scripts/test-e2e-pipeline.ts b/scripts/test-e2e-pipeline.ts
+index 021e3d8..cfe4f21 100644
+--- a/scripts/test-e2e-pipeline.ts
++++ b/scripts/test-e2e-pipeline.ts
+@@ -104,8 +104,10 @@ async function e2eTest() {
+           platform: "tiktok",
+           scrapedAt: new Date().toISOString(),
+           metadata: {
+-            hashtag: "trending",
+-            source: "decodo-api",
++            platform: "tiktok",
++            type: "hashtag",
++            value: "trending",
++            url: "https://www.tiktok.com/tag/trending",
+           },
+         },
+       });

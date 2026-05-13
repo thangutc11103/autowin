@@ -29,9 +29,9 @@ export function getCrawlQueue(): Queue<CrawlJobData> {
 export async function addCrawlJob(jobData: CrawlJobData): Promise<string> {
   const queue = getCrawlQueue();
   const job = await queue.add("crawl", jobData, {
-    jobId: jobData.jobId,
+    jobId: jobData.jobId ?? jobData.id,
   });
-  return job.id || jobData.jobId || "unknown";
+  return job.id || jobData.id;
 }
 
 export async function addBulkCrawlJobs(
@@ -43,11 +43,11 @@ export async function addBulkCrawlJobs(
       name: "crawl",
       data,
       opts: {
-        jobId: data.jobId,
+        jobId: data.jobId ?? data.id,
       },
     })),
   );
-  return jobs.map((job) => job.id || job.data?.jobId || "unknown");
+  return jobs.map((job) => job.id || job.data?.id || "unknown");
 }
 
 export async function closeQueue(): Promise<void> {

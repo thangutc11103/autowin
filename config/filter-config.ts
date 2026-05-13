@@ -2,10 +2,12 @@ import type { Platform } from "@/types/video";
 
 export interface FilterField {
   key: string;
-  type: "slider" | ["text"];
+  label: string;
+  type: "slider" | "text";
   min?: number;
   max?: number;
   step?: number;
+  defaultValue?: number;
   placeholder?: string;
 }
 
@@ -23,96 +25,37 @@ export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
   {
     platform: "tiktok",
     label: "TikTok",
-    emoji: "🎵",
+    emoji: "♪",
     sections: [
       {
-        label: "Danh mục",
+        label: "Bộ lọc",
         fields: [
           {
             key: "danh_muc",
-            type: ["text"],
-            placeholder: "Danh mục...",
+            label: "Danh mục",
+            placeholder: "sport, trending",
+            type: "text",
           },
-        ],
-      },
-      {
-        label: "Tên kênh/tài khoản",
-        fields: [
-          {
-            key: "ten_kenh_tai_khoan",
-            type: ["text"],
-            placeholder: "Tên kênh/tài khoản...",
-          },
-        ],
-      },
-      {
-        label: "# Hashtag",
-        fields: [
           {
             key: "hashtag",
-            type: ["text"],
-            placeholder: "#trending",
+            label: "Hashtag",
+            placeholder: "#trending, #fyp",
+            type: "text",
           },
-        ],
-      },
-      {
-        label: "Số video",
-        fields: [
-          {
-            key: "limit",
-            type: "slider",
-            min: 1,
-            max: 100,
-            step: 1,
-          },
-        ],
-      },
-    ],
-  },
-  {
-    platform: "douyin",
-    label: "Douyin",
-    emoji: "🎶",
-    sections: [
-      {
-        label: "Danh mục",
-        fields: [
-          {
-            key: "danh_muc",
-            type: ["text"],
-            placeholder: "Danh mục...",
-          },
-        ],
-      },
-      {
-        label: "Tên kênh/tài khoản",
-        fields: [
           {
             key: "ten_kenh_tai_khoan",
-            type: ["text"],
-            placeholder: "Tên kênh/tài khoản...",
+            label: "Tài khoản/Kênh",
+            placeholder: "@saito, @dt_11103",
+            type: "text",
           },
-        ],
-      },
-      {
-        label: "# Hashtag",
-        fields: [
-          {
-            key: "hashtag",
-            type: ["text"],
-            placeholder: "#douyin",
-          },
-        ],
-      },
-      {
-        label: "Số video",
-        fields: [
           {
             key: "limit",
+            label: "Số video tối đa",
             type: "slider",
             min: 1,
-            max: 100,
+            max: 50,
             step: 1,
+            defaultValue: 1,
           },
         ],
       },
@@ -121,118 +64,25 @@ export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
   {
     platform: "facebook",
     label: "Facebook",
-    emoji: "👥",
-    sections: [
-      {
-        label: "# Hashtag",
-        fields: [
-          {
-            key: "hashtag",
-            type: ["text"],
-            placeholder: "#facebook",
-          },
-        ],
-      },
-      {
-        label: "Tên kênh/tài khoản",
-        fields: [
-          {
-            key: "ten_kenh_tai_khoan",
-            type: ["text"],
-            placeholder: "Tên kênh...",
-          },
-        ],
-      },
-      {
-        label: "Số video",
-        fields: [
-          {
-            key: "limit",
-            type: "slider",
-            min: 1,
-            max: 100,
-            step: 1,
-          },
-        ],
-      },
-    ],
+    emoji: "f",
+    sections: [],
   },
   {
     platform: "instagram",
     label: "Instagram",
-    emoji: "📸",
-    sections: [
-      {
-        label: "# Hashtag",
-        fields: [
-          {
-            key: "hashtag",
-            type: ["text"],
-            placeholder: "#instagram",
-          },
-        ],
-      },
-      {
-        label: "Tên kênh/tài khoản",
-        fields: [
-          {
-            key: "ten_kenh_tai_khoan",
-            type: ["text"],
-            placeholder: "Tên kênh...",
-          },
-        ],
-      },
-      {
-        label: "Số video",
-        fields: [
-          {
-            key: "limit",
-            type: "slider",
-            min: 1,
-            max: 100,
-            step: 1,
-          },
-        ],
-      },
-    ],
+    emoji: "IG",
+    sections: [],
   },
   {
     platform: "youtube",
     label: "YouTube",
-    emoji: "▶️",
-    sections: [
-      {
-        label: "# Hashtag",
-        fields: [
-          {
-            key: "hashtag",
-            type: ["text"],
-            placeholder: "#youtube",
-          },
-        ],
-      },
-      {
-        label: "Tên kênh/tài khoản",
-        fields: [
-          {
-            key: "ten_kenh_tai_khoan",
-            type: ["text"],
-            placeholder: "Tên kênh...",
-          },
-        ],
-      },
-      {
-        label: "Số video",
-        fields: [
-          {
-            key: "limit",
-            type: "slider",
-            min: 1,
-            max: 100,
-            step: 1,
-          },
-        ],
-      },
-    ],
+    emoji: "YT",
+    sections: [],
+  },
+  {
+    platform: "douyin",
+    label: "Douyin",
+    emoji: "D",
+    sections: [],
   },
 ];

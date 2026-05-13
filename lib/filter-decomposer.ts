@@ -6,12 +6,14 @@
  * Most filtering happens at the scraper level.
  */
 
-import type { CrawlJobData } from "@/types/job";
+import type { CrawlJobData, JobType } from "@/types/job";
+
+type LegacyFilterType = "hashtag" | "user" | "search";
 
 export interface DecomposeFilterRequest {
   platform: "tiktok" | "douyin" | "youtube" | "facebook" | "instagram";
   filters: Array<{
-    type: "hashtag" | "user" | "search";
+    type: LegacyFilterType;
     value: string;
   }>;
 }
@@ -59,20 +61,26 @@ export function decomposeFilters(
   request: DecomposeFilterRequest,
 ): CrawlJobData[] {
   const jobs: CrawlJobData[] = [];
+  const batchId = `batch-${crypto.randomUUID()}`;
 
-  for (const filter of request.filters) {
+  for (const [index, filter] of request.filters.entries()) {
     const targetUrl = buildTargetUrl(
       request.platform,
       filter.type,
       filter.value,
     );
+    const id = `${batchId}-${index}`;
 
     const job: CrawlJobData = {
+      id,
+      batchId,
       platform: request.platform,
-      type: filter.type,
+      type: mapFilterTypeToJobType(filter.type),
       value: filter.value,
       targetUrl,
-      limit: 30, // Default limit
+      limit: 30,
+      createdAt: new Date().toISOString(),
+      jobId: id,
     };
 
     jobs.push(job);
@@ -110,4 +118,16 @@ function buildTargetUrl(platform: string, type: string, value: string): string {
   }
 
   return "";
+}
+
+function mapFilterTypeToJobType(type: LegacyFilterType): JobType {
+  if (type === "user") {
+    return "account";
+  }
+
+  if (type === "search") {
+    return "category";
+  }
+
+  return type;
 }

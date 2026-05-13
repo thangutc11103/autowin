@@ -8,7 +8,7 @@ import { TikTokDecodoScraper } from "./tiktok-decodo-scraper";
  */
 
 export interface ScraperStrategy {
-  crawl(url: string, type: JobType): Promise<any>;
+  crawl(url: string, type: JobType, limit?: number): Promise<any>;
 }
 
 // Production Scraper cho TikTok - Sử dụng Decodo API + Cheerio
@@ -19,21 +19,11 @@ class TikTokScraper implements ScraperStrategy {
    * Crawl TikTok using Decodo API + Cheerio (Production-ready)
    * No Playwright needed, automatic bot detection handling
    */
-  async crawl(url: string, type: JobType) {
+  async crawl(url: string, type: JobType, limit?: number) {
     try {
       console.log(`[TikTok] Crawling ${type}: ${url}`);
 
-      // Extract hashtag from URL (if applicable)
-      // URL format: https://www.tiktok.com/tag/{hashtag}
-      const hashtagMatch = url.match(/\/tag\/([^/?]+)/);
-      const hashtag = hashtagMatch?.[1];
-
-      if (!hashtag) {
-        throw new Error("Invalid TikTok hashtag URL");
-      }
-
-      // Use Decodo scraper to fetch hashtag page
-      const result = await this.decodoScraper.crawlHashtag(hashtag);
+      const result = await this.decodoScraper.crawlUrl(url, type, limit);
 
       if (!result.success || !result.data) {
         return {
@@ -83,7 +73,7 @@ class TikTokScraper implements ScraperStrategy {
 
 // Example Scraper cho Douyin
 class DouyinScraper implements ScraperStrategy {
-  async crawl(url: string, type: JobType): Promise<any> {
+  async crawl(url: string, type: JobType, _limit?: number): Promise<any> {
     // TODO: Implement Douyin crawling logic
     console.log(`Crawling Douyin ${type}: ${url}`);
     return {
@@ -97,7 +87,7 @@ class DouyinScraper implements ScraperStrategy {
 
 // Example Scraper cho Facebook
 class FacebookScraper implements ScraperStrategy {
-  async crawl(url: string, type: JobType): Promise<any> {
+  async crawl(url: string, type: JobType, _limit?: number): Promise<any> {
     // TODO: Implement Facebook crawling logic
     console.log(`Crawling Facebook ${type}: ${url}`);
     return {
@@ -111,7 +101,7 @@ class FacebookScraper implements ScraperStrategy {
 
 // Example Scraper cho Instagram
 class InstagramScraper implements ScraperStrategy {
-  async crawl(url: string, type: JobType): Promise<any> {
+  async crawl(url: string, type: JobType, _limit?: number): Promise<any> {
     // TODO: Implement Instagram crawling logic
     console.log(`Crawling Instagram ${type}: ${url}`);
     return {
@@ -125,7 +115,7 @@ class InstagramScraper implements ScraperStrategy {
 
 // Example Scraper cho YouTube
 class YouTubeScraper implements ScraperStrategy {
-  async crawl(url: string, type: JobType): Promise<any> {
+  async crawl(url: string, type: JobType, _limit?: number): Promise<any> {
     // TODO: Implement YouTube crawling logic
     console.log(`Crawling YouTube ${type}: ${url}`);
     return {

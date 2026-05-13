@@ -114,8 +114,13 @@ export default function FilterPanel() {
             });
 
             if (!response.ok) {
+                console.log("YYYYYYYYYYYYYYYYYYYYYYYYYYYY");
                 const errorData = await response.json();
                 throw new Error(errorData.error || 'Failed to submit filters');
+
+            }
+            else {
+                console.log("XXXXXXXXXXXXXXXXXXXXx");
             }
 
             const result: JobSubmissionResult = await response.json();
@@ -158,7 +163,6 @@ export default function FilterPanel() {
 
     const handleFind = async (platform: Platform) => {
         setActivePlatform(platform);
-
         // Clear old data from store trước khi submit new filters (tránh mixing old + new)
         resetFilters(platform);
 

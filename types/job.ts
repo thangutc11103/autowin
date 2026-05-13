@@ -3,14 +3,15 @@ import type { Platform } from "./video";
 export type JobType = "hashtag" | "category" | "account";
 
 export interface CrawlJobData {
+  id: string;
+  batchId: string;
   platform: Platform;
   type: JobType;
   value: string;
   targetUrl: string;
-  limit?: number;
+  limit: number;
+  createdAt: string;
   jobId?: string;
-  batchId?: string;
-  createdAt?: string;
 }
 
 export interface DecomposeFilterRequest {

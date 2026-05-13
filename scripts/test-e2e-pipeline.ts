@@ -92,11 +92,14 @@ async function e2eTest() {
     try {
       const saveResult = await saveSuccessfulScrape({
         jobData: {
+          id: "test-e2e-tiktok-hashtag-trending",
+          batchId: "test-e2e",
           platform: "tiktok",
           type: "hashtag",
           value: "trending",
           targetUrl: "https://www.tiktok.com/tag/trending",
           limit: mappedVideos.length,
+          createdAt: new Date().toISOString(),
         },
         result: {
           videos: mappedVideos,
@@ -104,8 +107,10 @@ async function e2eTest() {
           platform: "tiktok",
           scrapedAt: new Date().toISOString(),
           metadata: {
-            hashtag: "trending",
-            source: "decodo-api",
+            platform: "tiktok",
+            type: "hashtag",
+            value: "trending",
+            url: "https://www.tiktok.com/tag/trending",
           },
         },
       });
