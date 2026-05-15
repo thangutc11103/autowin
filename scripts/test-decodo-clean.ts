@@ -27,15 +27,15 @@ async function main() {
 
     console.log(`\n📊 Result:`, JSON.stringify(hashtagResult, null, 2));
 
-    // Step 2: Crawl first video
+    // Step 2: Show first listing result without crawling the detail page
     if (hashtagResult.data && hashtagResult.data.length > 0) {
-      console.log(`\n[Step 2] Crawl first video\n`);
+      console.log(`\n[Step 2] Verify listing-only result\n`);
 
       const firstVideo = hashtagResult.data[0];
 
-      const videoResult = await scraper.crawlVideo(firstVideo.video_url);
+      console.log(`    First video URL: ${firstVideo.video_url}`);
 
-      console.log(`\n🎬 Result:`, JSON.stringify(videoResult, null, 2));
+      console.log("    Detail page skipped to avoid per-video Decodo requests.");
     }
 
     console.log("\n");

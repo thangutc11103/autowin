@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useCallback } from 'react';
+import type { CrawlJobData } from '@/types/job';
 
 interface JobData {
     id: string;
-    data: any;
+    data: Partial<CrawlJobData>;
     state: string;
     progress: number;
     attempts: number;
@@ -35,7 +37,7 @@ export default function DebugPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
@@ -56,13 +58,20 @@ export default function DebugPage() {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
     useEffect(() => {
-        fetchData();
-        const interval = setInterval(fetchData, 3000); // Auto-refresh every 3 seconds
-        return () => clearInterval(interval);
-    }, []);
+        const timeout = setTimeout(() => {
+            void fetchData();
+        }, 0);
+        const interval = setInterval(() => {
+            void fetchData();
+        }, 3000); // Auto-refresh every 3 seconds
+        return () => {
+            clearTimeout(timeout);
+            clearInterval(interval);
+        };
+    }, [fetchData]);
 
     return (
         <div className="p-6 bg-gray-50 min-h-screen">

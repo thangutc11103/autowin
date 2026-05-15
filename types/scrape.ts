@@ -6,9 +6,7 @@ export interface ScrapedVideo {
   url: string;
   platform: Platform;
   author?: string | null;
-  views?: number | null;
   thumbnail?: string | null;
-  uploadedAt?: string | null;
   crawledAt: string;
   rawPayload?: Record<string, unknown>;
 }

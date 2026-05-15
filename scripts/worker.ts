@@ -14,6 +14,7 @@ import { getRedis } from "@/lib/redis";
 import { ScraperFactory } from "@/lib/scrapers/scraper-factory";
 import { saveSuccessfulScrape } from "@/lib/database/scrape-storage";
 import type { CrawlJobData } from "@/types/job";
+import type { ScrapedVideo } from "@/types/scrape";
 
 /**
  * Setup Worker Processor
@@ -51,6 +52,10 @@ function setupWorker() {
 
         const scrapeResult = await scraper.crawl(targetUrl, type, limit);
 
+        if (scrapeResult.error) {
+          throw new Error(`Scraper failed: ${scrapeResult.error}`);
+        }
+
         // Log raw scrapeResult
         console.log(`[JOB ${job.id}] 📊 Scrape Result:`);
         console.log(`   Type: ${typeof scrapeResult}`);
@@ -84,24 +89,20 @@ function setupWorker() {
             );
 
             // Map scraped videos to ScrapeResult format
-            const videosArray = Array.isArray(scrapeResult.data)
-              ? scrapeResult.data
-              : Object.values(scrapeResult.data || {});
+            const videosArray = scrapeResult.data;
 
             console.log(
               `[JOB ${job.id}] Converting ${videosArray.length} videos...`,
             );
 
-            const mappedVideos = videosArray.map((video: any) => {
+            const mappedVideos: ScrapedVideo[] = videosArray.map((video) => {
               const mapped = {
                 externalId: video.video_id || `${platform}_${video.title}`,
-                title: video.title,
+                title: video.title || "Untitled",
                 url: video.video_url,
-                platform: platform as any,
+                platform,
                 author: video.author || undefined,
-                views: video.views || undefined,
                 thumbnail: video.thumbnail_url || undefined,
-                uploadedAt: video.uploaded_at,
                 crawledAt: new Date().toISOString(),
                 rawPayload: video.rawPayload || {},
               };
@@ -141,7 +142,7 @@ function setupWorker() {
             console.log(`[JOB ${job.id}] Database result:`, dbResult);
 
             // Log each saved video
-            mappedVideos.slice(0, 3).forEach((video: any, idx: number) => {
+            mappedVideos.slice(0, 3).forEach((video, idx) => {
               console.log(`   [${idx + 1}] "${video.title}" - ${video.url}`);
             });
             if (videosFound > 3) {

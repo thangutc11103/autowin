@@ -1,5 +1,10 @@
 import { getCrawlQueue } from "@/lib/queue";
+import type { Redis } from "ioredis";
 import type { NextRequest } from "next/server";
+
+interface QueueWithClient {
+  client?: Redis;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -43,7 +48,7 @@ export async function POST(request: NextRequest) {
 
     // Lọc jobs của batch này
     const batchJobs = allJobs.filter((job) => {
-      const jobBatchId = (job.data as any).batchId;
+      const jobBatchId = job.data.batchId;
       const match = jobBatchId === batchId;
       if (match) {
         console.log(
@@ -58,7 +63,7 @@ export async function POST(request: NextRequest) {
     if (batchJobs.length === 0) {
       console.log(`[CLEAR] WARNING: No jobs found for batchId ${batchId}`);
       console.log(`[CLEAR] Available batchIds:`, [
-        ...new Set(allJobs.map((j) => (j.data as any).batchId)),
+        ...new Set(allJobs.map((j) => j.data.batchId)),
       ]);
     }
 
@@ -72,7 +77,7 @@ export async function POST(request: NextRequest) {
 
     for (const job of batchJobs) {
       const jobId = job.id || "unknown";
-      const state = (job as any)._state || "unknown";
+      const state = await job.getState();
 
       try {
         console.log(
@@ -89,13 +94,18 @@ export async function POST(request: NextRequest) {
           removedIds.push(jobId);
           continue;
         } catch (removeErr) {
+          console.log(
+            `[CLEAR] Method 1 failed: ${
+              removeErr instanceof Error ? removeErr.message : String(removeErr)
+            }`,
+          );
           console.log(`[CLEAR] Method 1 failed, trying method 2...`);
         }
 
         // Method 2: For completed jobs, clean up data directly
         try {
           // Remove job references from Redis
-          const client = (queue as any).client;
+          const client = (queue as unknown as QueueWithClient).client;
           if (client) {
             // Delete job key and references
             await client.del(`bull:crawl-tasks:${jobId}`);

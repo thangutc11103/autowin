@@ -65,17 +65,17 @@ async function debugVideoHTML() {
             `  [${idx}]:`,
             JSON.stringify(parsed, null, 2).substring(0, 200),
           );
-        } catch (e) {
+        } catch {
           console.log(`  [${idx}]: ${json.substring(0, 100)}...`);
         }
       }
     });
 
-    // Check for stats/numbers
+    // Check for engagement numbers
     console.log(`\n[5] Text containing numbers:`);
     const bodyText = $("body").text();
     const numbers = bodyText.match(
-      /(\d+(?:K|M|B)?)\s*(views?|likes?|comments?|shares?)/gi,
+      /(\d+(?:K|M|B)?)\s*(likes?|comments?|shares?)/gi,
     );
     if (numbers) {
       numbers.slice(0, 10).forEach((n) => console.log(`  ${n}`));
@@ -125,7 +125,7 @@ async function debugVideoHTML() {
         const jsonStart = "{" + reactDataMatch[1].split("{").slice(1).join("{");
         const parsed = JSON.parse(jsonStart);
         console.log(`  Structure:`, Object.keys(parsed).slice(0, 5).join(", "));
-      } catch (e) {
+      } catch {
         console.log(`  (Could not parse)`);
       }
     }

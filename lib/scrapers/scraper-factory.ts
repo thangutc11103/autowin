@@ -1,5 +1,7 @@
 import type { Platform } from "@/types/video";
 import type { JobType } from "@/types/job";
+import { FacebookPlaywrightScraper } from "./facebook-decodo-scraper";
+import { InstagramPlaywrightScraper } from "./instagram-playwright-scraper";
 import { TikTokDecodoScraper } from "./tiktok-decodo-scraper";
 
 /**
@@ -8,7 +10,26 @@ import { TikTokDecodoScraper } from "./tiktok-decodo-scraper";
  */
 
 export interface ScraperStrategy {
-  crawl(url: string, type: JobType, limit?: number): Promise<any>;
+  crawl(url: string, type: JobType, limit?: number): Promise<ScraperCrawlResult>;
+}
+
+export interface ScraperVideo {
+  video_url: string;
+  video_id?: string;
+  author?: string;
+  thumbnail_url?: string | null;
+  platform: Platform;
+  title?: string;
+  rawPayload?: Record<string, unknown>;
+}
+
+export interface ScraperCrawlResult {
+  platform: Platform;
+  type: JobType;
+  url: string;
+  count?: number;
+  data: ScraperVideo[];
+  error?: string;
 }
 
 // Production Scraper cho TikTok - Sử dụng Decodo API + Cheerio
@@ -19,7 +40,11 @@ class TikTokScraper implements ScraperStrategy {
    * Crawl TikTok using Decodo API + Cheerio (Production-ready)
    * No Playwright needed, automatic bot detection handling
    */
-  async crawl(url: string, type: JobType, limit?: number) {
+  async crawl(
+    url: string,
+    type: JobType,
+    limit?: number,
+  ): Promise<ScraperCrawlResult> {
     try {
       console.log(`[TikTok] Crawling ${type}: ${url}`);
 
@@ -27,7 +52,7 @@ class TikTokScraper implements ScraperStrategy {
 
       if (!result.success || !result.data) {
         return {
-          platform: "tiktok",
+          platform: "tiktok" as const,
           type,
           url,
           count: 0,
@@ -37,19 +62,19 @@ class TikTokScraper implements ScraperStrategy {
       }
 
       // Transform to factory format
-      const videos = result.data.map((v: any) => ({
+      const videos = result.data.map((v) => ({
         video_url: v.video_url,
         video_id: v.video_id,
         author: v.author,
-        platform: "tiktok",
-        title: `${v.author}'s TikTok`,
-        views: null, // Will be null until we enrich with metadata
+        thumbnail_url: v.thumbnail_url,
+        platform: "tiktok" as const,
+        title: v.title || `${v.author}'s TikTok`,
       }));
 
       console.log(`[TikTok] Found ${videos.length} videos`);
 
       return {
-        platform: "tiktok",
+        platform: "tiktok" as const,
         type,
         url,
         count: videos.length,
@@ -73,56 +98,58 @@ class TikTokScraper implements ScraperStrategy {
 
 // Example Scraper cho Douyin
 class DouyinScraper implements ScraperStrategy {
-  async crawl(url: string, type: JobType, _limit?: number): Promise<any> {
+  async crawl(url: string, type: JobType): Promise<ScraperCrawlResult> {
     // TODO: Implement Douyin crawling logic
     console.log(`Crawling Douyin ${type}: ${url}`);
     return {
       platform: "douyin",
       type,
       url,
-      data: {},
+      count: 0,
+      data: [],
     };
   }
 }
 
 // Example Scraper cho Facebook
 class FacebookScraper implements ScraperStrategy {
-  async crawl(url: string, type: JobType, _limit?: number): Promise<any> {
-    // TODO: Implement Facebook crawling logic
-    console.log(`Crawling Facebook ${type}: ${url}`);
-    return {
-      platform: "facebook",
-      type,
-      url,
-      data: {},
-    };
+  private playwrightScraper = new FacebookPlaywrightScraper();
+
+  async crawl(
+    url: string,
+    type: JobType,
+    limit?: number,
+  ): Promise<ScraperCrawlResult> {
+    console.log(`[Facebook] Crawling ${type}: ${url}`);
+    return this.playwrightScraper.crawlUrl(url, type, limit);
   }
 }
 
 // Example Scraper cho Instagram
 class InstagramScraper implements ScraperStrategy {
-  async crawl(url: string, type: JobType, _limit?: number): Promise<any> {
-    // TODO: Implement Instagram crawling logic
-    console.log(`Crawling Instagram ${type}: ${url}`);
-    return {
-      platform: "instagram",
-      type,
-      url,
-      data: {},
-    };
+  private playwrightScraper = new InstagramPlaywrightScraper();
+
+  async crawl(
+    url: string,
+    type: JobType,
+    limit?: number,
+  ): Promise<ScraperCrawlResult> {
+    console.log(`[Instagram] Crawling ${type}: ${url}`);
+    return this.playwrightScraper.crawlUrl(url, type, limit);
   }
 }
 
 // Example Scraper cho YouTube
 class YouTubeScraper implements ScraperStrategy {
-  async crawl(url: string, type: JobType, _limit?: number): Promise<any> {
+  async crawl(url: string, type: JobType): Promise<ScraperCrawlResult> {
     // TODO: Implement YouTube crawling logic
     console.log(`Crawling YouTube ${type}: ${url}`);
     return {
       platform: "youtube",
       type,
       url,
-      data: {},
+      count: 0,
+      data: [],
     };
   }
 }

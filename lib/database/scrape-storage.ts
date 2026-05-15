@@ -91,6 +91,11 @@ export async function ensureScrapeStorage(): Promise<void> {
       `);
 
       await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_scrape_runs_platform_scraped_at
+        ON scrape_runs (platform, scraped_at);
+      `);
+
+      await client.query(`
         CREATE TABLE IF NOT EXISTS scraped_videos (
           id BIGSERIAL PRIMARY KEY,
           job_id TEXT NOT NULL REFERENCES scrape_runs(job_id) ON DELETE CASCADE,
@@ -101,10 +106,8 @@ export async function ensureScrapeStorage(): Promise<void> {
           video_id TEXT NOT NULL,
           title TEXT NOT NULL,
           author TEXT,
-          views BIGINT,
           video_url TEXT NOT NULL,
           thumbnail_url TEXT,
-          uploaded_at TIMESTAMPTZ,
           crawled_at TIMESTAMPTZ NOT NULL,
           scraped_at TIMESTAMPTZ NOT NULL,
           raw_payload JSONB NOT NULL DEFAULT '{}'::JSONB,
@@ -197,9 +200,9 @@ export async function saveSuccessfulScrape(params: {
           [];
 
         params.result.videos.forEach((video, index) => {
-          const offset = index * 13;
+          const offset = index * 11;
           placeholders.push(
-            `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13})`,
+            `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11})`,
           );
 
           values.push(
@@ -211,10 +214,8 @@ export async function saveSuccessfulScrape(params: {
             video.externalId,
             video.title,
             video.author ?? null,
-            video.views ?? null,
             video.url,
             video.thumbnail ?? null,
-            video.uploadedAt ?? null,
             {
               crawledAt: video.crawledAt,
               scrapedAt: params.result.scrapedAt,
@@ -234,10 +235,8 @@ export async function saveSuccessfulScrape(params: {
               video_id,
               title,
               author,
-              views,
               video_url,
               thumbnail_url,
-              uploaded_at,
               raw_payload,
               crawled_at,
               scraped_at
@@ -251,10 +250,8 @@ export async function saveSuccessfulScrape(params: {
               entry.video_id,
               entry.title,
               entry.author,
-              entry.views::BIGINT,
               entry.video_url,
               entry.thumbnail_url,
-              entry.uploaded_at::TIMESTAMPTZ,
               entry.raw_payload::JSONB,
               (entry.raw_payload::JSONB->>'crawledAt')::TIMESTAMPTZ,
               (entry.raw_payload::JSONB->>'scrapedAt')::TIMESTAMPTZ
@@ -269,10 +266,8 @@ export async function saveSuccessfulScrape(params: {
               video_id,
               title,
               author,
-              views,
               video_url,
               thumbnail_url,
-              uploaded_at,
               raw_payload
             )
           `,
@@ -354,6 +349,68 @@ export async function closeScrapeStorage(): Promise<void> {
     pool = null;
     schemaPromise = null;
   }
+}
+
+export async function clearScrapeHistory(params: {
+  platform?: string | null;
+  olderThanDays?: 7 | 30 | null;
+}): Promise<{ deletedRuns: number; deletedVideos: number }> {
+  await ensureScrapeStorage();
+
+  return withClient(async (client) => {
+    const conditions: string[] = [];
+    const values: Array<string | number> = [];
+
+    if (params.platform) {
+      values.push(params.platform);
+      conditions.push(`scrape_runs.platform = $${values.length}`);
+    }
+
+    if (params.olderThanDays) {
+      values.push(params.olderThanDays);
+      conditions.push(
+        `scrape_runs.scraped_at < NOW() - ($${values.length}::INT * INTERVAL '1 day')`,
+      );
+    }
+
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    await client.query("BEGIN");
+
+    try {
+      const countResult = await client.query(
+        `
+          SELECT
+            COUNT(DISTINCT scrape_runs.job_id)::INT AS run_count,
+            COUNT(scraped_videos.id)::INT AS video_count
+          FROM scrape_runs
+          LEFT JOIN scraped_videos ON scraped_videos.job_id = scrape_runs.job_id
+          ${whereClause}
+        `,
+        values,
+      );
+
+      const deleteResult = await client.query(
+        `
+          DELETE FROM scrape_runs
+          ${whereClause}
+        `,
+        values,
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        deletedRuns:
+          Number(countResult.rows[0]?.run_count) || deleteResult.rowCount || 0,
+        deletedVideos: Number(countResult.rows[0]?.video_count) || 0,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
 }
 
 export function getConfiguredDatabaseHost(): string | null {

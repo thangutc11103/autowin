@@ -19,7 +19,7 @@ async function testPlatformTargets() {
   for (const target of targets) {
     try {
       console.log(`\n[${target}]`);
-      const result = await decodoScrape(url, target as any);
+      const result = await decodoScrape(url, target);
       const html = result.results?.[0]?.content || result.body || "";
 
       console.log(`  Size: ${html.length} bytes`);
@@ -44,7 +44,6 @@ async function testPlatformTargets() {
             .slice(0, 3)
             .each((_, el) => {
               const href = $(el).attr("href");
-              const text = $(el).text().substring(0, 30);
               console.log(`    → ${href}`);
             });
         }

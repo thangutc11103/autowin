@@ -1,7 +1,7 @@
 import Redis from "ioredis";
 
 // Singleton pattern để reuse connection
-let redis: Redis;
+let redis: Redis | null = null;
 
 export function getRedis(): Redis {
   if (!redis) {
@@ -32,6 +32,6 @@ export function getRedis(): Redis {
 export async function closeRedis(): Promise<void> {
   if (redis) {
     await redis.quit();
-    redis = null as any;
+    redis = null;
   }
 }

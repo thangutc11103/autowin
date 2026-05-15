@@ -64,6 +64,15 @@ function isValidPlatform(value: string | null): value is Platform {
   return value !== null && VALID_PLATFORMS.includes(value as Platform);
 }
 
+function getStringPayloadValue(
+  payload: Record<string, unknown> | null,
+  key: string,
+): string | null {
+  const value = payload?.[key];
+
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -105,12 +114,10 @@ export async function GET(request: NextRequest) {
         id,
         title,
         author,
-        views,
         platform,
         video_url,
         thumbnail_url,
-        uploaded_at,
-        created_at
+        raw_payload
       FROM scraped_videos
       ${whereClause}
       ORDER BY created_at DESC
@@ -119,19 +126,21 @@ export async function GET(request: NextRequest) {
 
     const result = await getPool().query(query, values);
 
-    const videos: Video[] = result.rows.map((row) => ({
-      id: String(row.id),
-      title: row.title,
-      thumbnail: row.thumbnail_url || "",
-      views: Number(row.views || 0),
-      platform: row.platform as Platform,
-      url: row.video_url,
-      uploadedAt:
-        row.uploaded_at?.toISOString?.() ||
-        row.created_at?.toISOString?.() ||
-        new Date().toISOString(),
-      description: row.author ? `By ${row.author}` : undefined,
-    }));
+    const videos: Video[] = result.rows.map((row) => {
+      const rawPayload = (row.raw_payload || {}) as Record<string, unknown>;
+
+      return {
+        id: String(row.id),
+        title: row.title,
+        thumbnail: row.thumbnail_url || "",
+        platform: row.platform as Platform,
+        url: row.video_url,
+        description: row.author ? `By ${row.author}` : undefined,
+        rawPayload,
+        mediaVideoUrl: getStringPayloadValue(rawPayload, "mediaVideoUrl"),
+        mediaAudioUrl: getStringPayloadValue(rawPayload, "mediaAudioUrl"),
+      };
+    });
 
     return NextResponse.json({
       videos,

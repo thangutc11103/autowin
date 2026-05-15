@@ -1,5 +1,19 @@
 import { getCrawlQueue } from "@/lib/queue";
+import type { CrawlJobData } from "@/types/job";
+import type { Job } from "bullmq";
 import type { NextRequest } from "next/server";
+
+interface InspectJobData {
+  id: string;
+  data: CrawlJobData | Record<string, never>;
+  state: string;
+  progress: number | object;
+  attempts: number;
+  maxAttempts: number;
+  createdAt: string;
+  processedOn: string | null;
+  finishedOn: string | null;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -25,10 +39,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Lấy tất cả jobs từ các trạng thái khác nhau
-    let waitingJobs = [];
-    let activeJobs = [];
-    let completedJobs = [];
-    let failedJobs = [];
+    let waitingJobs: Job<CrawlJobData>[] = [];
+    let activeJobs: Job<CrawlJobData>[] = [];
+    let completedJobs: Job<CrawlJobData>[] = [];
+    let failedJobs: Job<CrawlJobData>[] = [];
 
     try {
       waitingJobs = await queue.getJobs(["wait"], 0, -1);
@@ -53,7 +67,7 @@ export async function GET(request: NextRequest) {
     let filteredJobs = allJobs;
     if (batchId) {
       filteredJobs = allJobs.filter(
-        (job) => (job.data as any).batchId === batchId,
+        (job) => job.data.batchId === batchId,
       );
       console.log(
         `[INSPECT] Filtered by batchId: ${batchId}, found ${filteredJobs.length} jobs`,
@@ -61,7 +75,7 @@ export async function GET(request: NextRequest) {
     }
     if (platform) {
       filteredJobs = filteredJobs.filter(
-        (job) => (job.data as any).platform === platform,
+        (job) => job.data.platform === platform,
       );
       console.log(
         `[INSPECT] Filtered by platform: ${platform}, found ${filteredJobs.length} jobs`,
@@ -76,7 +90,7 @@ export async function GET(request: NextRequest) {
     failedJobs.forEach((job) => jobStateMap.set(job.id || "", "failed"));
 
     // Map job data để dễ read
-    const jobsData = filteredJobs.map((job) => {
+    const jobsData: InspectJobData[] = filteredJobs.map((job) => {
       try {
         return {
           id: job.id || "unknown",
@@ -112,9 +126,9 @@ export async function GET(request: NextRequest) {
     });
 
     // Group by batchId
-    const groupedByBatch: Record<string, any[]> = {};
+    const groupedByBatch: Record<string, InspectJobData[]> = {};
     jobsData.forEach((job) => {
-      const bid = (job.data as any).batchId || "unknown";
+      const bid = "batchId" in job.data ? job.data.batchId : "unknown";
       if (!groupedByBatch[bid]) {
         groupedByBatch[bid] = [];
       }
@@ -122,7 +136,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Group by state
-    const groupedByState: Record<string, any[]> = {};
+    const groupedByState: Record<string, InspectJobData[]> = {};
     jobsData.forEach((job) => {
       const state = job.state || "unknown";
       if (!groupedByState[state]) {

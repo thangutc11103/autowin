@@ -15,7 +15,10 @@ export function getCrawlQueue(): Queue<CrawlJobData> {
           type: "exponential",
           delay: 2000,
         },
-        removeOnComplete: true, // Remove immediately after completion
+        removeOnComplete: {
+          age: 3600,
+          count: 1000,
+        },
         removeOnFail: {
           age: 3600, // Keep failed jobs for 1 hour for debugging
         },
@@ -30,6 +33,7 @@ export async function addCrawlJob(jobData: CrawlJobData): Promise<string> {
   const queue = getCrawlQueue();
   const job = await queue.add("crawl", jobData, {
     jobId: jobData.jobId ?? jobData.id,
+    attempts: jobData.platform === "facebook" ? 1 : undefined,
   });
   return job.id || jobData.id;
 }
@@ -44,6 +48,7 @@ export async function addBulkCrawlJobs(
       data,
       opts: {
         jobId: data.jobId ?? data.id,
+        attempts: data.platform === "facebook" ? 1 : undefined,
       },
     })),
   );

@@ -2,10 +2,38 @@
 
 import { useState } from 'react';
 import { PLATFORM_FILTER_CONFIGS } from '@/config/filter-config';
-import type { Platform } from '@/types/video';
 import { useFilterStore } from '@/store/filter.store';
-import { PlatformFilterValues } from '@/types/filter';
+import { useVideoStore } from '@/store/video.store';
+import type { PlatformFilterValues } from '@/types/filter';
 import type { DecomposeFilterRequest, JobSubmissionResult } from '@/types/job';
+import type { Platform, Video } from '@/types/video';
+
+interface ClearJobsResponse {
+    removedCount?: number;
+    error?: string;
+}
+
+interface CleanupResponse {
+    deletedRuns?: number;
+    deletedVideos?: number;
+    error?: string;
+    message?: string;
+}
+
+interface QueueInspectJob {
+    id: string;
+    state: string;
+}
+
+interface QueueInspectResponse {
+    jobs?: QueueInspectJob[];
+    error?: string;
+}
+
+interface VideosResponse {
+    videos?: Video[];
+    error?: string;
+}
 
 const PLATFORM_ACTIVE_COLORS: Record<Platform, string> = {
     tiktok: 'bg-pink-50 border-pink-300 text-pink-700',
@@ -15,32 +43,31 @@ const PLATFORM_ACTIVE_COLORS: Record<Platform, string> = {
     youtube: 'bg-red-50 border-red-300 text-red-700',
 };
 
-interface SectionProps {
-    label: string;
-    children: React.ReactNode;
-}
-
-function FilterSection({ label, children }: SectionProps) {
+function FilterSection({ label, children }: { label: string; children: React.ReactNode }) {
     return (
         <div className="border-b border-gray-100 last:border-0">
-            <button className="w-full flex items-center justify-between py-2 px-1 text-xs font-semibold text-gray-600 hover:text-gray-900 transition-colors cursor-pointer">
+            <div className="flex items-center justify-between px-1 py-2 text-xs font-semibold text-gray-600">
                 <span>{label}</span>
-                <span className="text-gray-400">▾</span>
-            </button>
-            <div className="pb-3 px-1">{children}</div>
+                <span className="text-gray-400">v</span>
+            </div>
+            <div className="px-1 pb-3">{children}</div>
         </div>
     );
 }
 
 export default function FilterPanel() {
-    const { activePlatform, filters, setActivePlatform, setFilterValue, resetFilters } = useFilterStore();
-    // draftFilters: Giá trị đang edit (không submit)
+    const {
+        activePlatform,
+        filters,
+        setActivePlatform,
+        setFilterValue,
+        resetFilters,
+    } = useFilterStore();
+    const setVideos = useVideoStore((state) => state.setVideos);
+    const setLoading = useVideoStore((state) => state.setLoading);
+    const setCurrentBatchId = useVideoStore((state) => state.setCurrentBatchId);
+
     const [draftFilters, setDraftFilters] = useState<Record<string, Record<string, string | number>>>({});
-    // lastCommittedFilters: Những gì đã gửi thành công lên redis
-    const [lastCommittedFilters, setLastCommittedFilters] = useState<Record<string, Record<string, string | number>>>({});
-    // submittedFields: Track những fields thực sự được submit (để không show stale values từ batch cũ)
-    const [submittedFields, setSubmittedFields] = useState<Record<string, Set<string>>>({});
-    // batchIds: Lưu batchId cho mỗi platform để xóa từ Redis
     const [batchIds, setBatchIds] = useState<Record<string, string>>({});
     const [expandedPlatforms, setExpandedPlatforms] = useState<Set<Platform>>(new Set(['tiktok']));
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -48,6 +75,14 @@ export default function FilterPanel() {
         type: 'success' | 'error';
         text: string;
     } | null>(null);
+    const [workerMessage, setWorkerMessage] = useState<string | null>(null);
+
+    const hideJobMessagesSoon = () => {
+        window.setTimeout(() => {
+            setSubmitMessage(null);
+            setWorkerMessage(null);
+        }, 3000);
+    };
 
     const togglePlatformExpand = (platform: Platform) => {
         setExpandedPlatforms((prev) => {
@@ -78,31 +113,113 @@ export default function FilterPanel() {
         }));
     };
 
-    const handleFieldChange = (
+    const handleSliderChange = (
         platform: Platform,
         key: keyof PlatformFilterValues,
-        value: number
+        value: number,
     ) => {
-        setDraftFilters((prev) => ({
-            ...prev,
-            [platform]: {
-                ...prev[platform],
-                [key]: value,
-            },
-        }));
+        handleInputChange(platform, key, value);
+        setFilterValue(platform, key, value);
+    };
+
+    const clearTextInputsAfterSuccess = (
+        platform: Platform,
+        processedFilters: Record<string, string[] | number>,
+    ) => {
+        setDraftFilters((prev) => {
+            const nextPlatformDraft: Record<string, string | number> = {};
+
+            Object.entries(prev[platform] || {}).forEach(([key, value]) => {
+                if (typeof value === 'number') {
+                    nextPlatformDraft[key] = value;
+                }
+            });
+
+            return {
+                ...prev,
+                [platform]: nextPlatformDraft,
+            };
+        });
+
+        Object.entries(processedFilters).forEach(([key, value]) => {
+            if (typeof value !== 'number') {
+                setFilterValue(platform, key as keyof PlatformFilterValues, []);
+            }
+        });
+    };
+
+    const reloadVideosForBatch = async (platform: Platform, batchId: string) => {
+        setLoading(true);
+
+        const params = new URLSearchParams({
+            batchId,
+            platform,
+            limit: '100',
+        });
+        const videosResponse = await fetch(`/api/videos?${params.toString()}`);
+        const videosData = (await videosResponse.json()) as VideosResponse;
+
+        if (!videosResponse.ok || videosData.error) {
+            throw new Error(videosData.error || 'Failed to reload videos');
+        }
+
+        setVideos(videosData.videos || []);
+    };
+
+    const waitForBatchCompletion = async (platform: Platform, batchId: string) => {
+        setWorkerMessage('Queued worker job...');
+
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+
+            const inspectResponse = await fetch(`/api/filter/inspect?batchId=${encodeURIComponent(batchId)}`);
+            const inspectData = (await inspectResponse.json()) as QueueInspectResponse;
+
+            if (!inspectResponse.ok || inspectData.error) {
+                throw new Error(inspectData.error || 'Failed to inspect worker job');
+            }
+
+            const states = inspectData.jobs?.map((job) => job.state) || [];
+
+            if (states.some((state) => state === 'failed')) {
+                throw new Error('Worker job failed');
+            }
+
+            if (states.some((state) => state === 'active')) {
+                setWorkerMessage('Worker is finding videos...');
+                continue;
+            }
+
+            if (states.some((state) => state === 'waiting' || state === 'delayed')) {
+                setWorkerMessage('Waiting for worker...');
+                continue;
+            }
+
+            if (states.length > 0 && states.every((state) => state === 'completed')) {
+                setWorkerMessage('Worker completed. Updating videos...');
+                setCurrentBatchId(platform, batchId);
+                await reloadVideosForBatch(platform, batchId);
+                setWorkerMessage('Completed. Video list updated.');
+                hideJobMessagesSoon();
+                return;
+            }
+        }
+
+        throw new Error('Timed out waiting for worker job');
     };
 
     const submitFiltersToRedis = async (
         platform: Platform,
-        processedFilters: Record<string, string[] | number>
+        processedFilters: Record<string, string[] | number>,
     ) => {
         setIsSubmitting(true);
         setSubmitMessage(null);
+        setWorkerMessage(null);
 
         try {
             const request: DecomposeFilterRequest = {
                 platform,
-                filters: processedFilters as any,
+                filters: processedFilters as DecomposeFilterRequest['filters'],
             };
 
             const response = await fetch('/api/filter/decompose', {
@@ -112,72 +229,50 @@ export default function FilterPanel() {
                 },
                 body: JSON.stringify(request),
             });
+            const result = (await response.json()) as JobSubmissionResult & { error?: string };
 
-            if (!response.ok) {
-                console.log("YYYYYYYYYYYYYYYYYYYYYYYYYYYY");
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to submit filters');
-
-            }
-            else {
-                console.log("XXXXXXXXXXXXXXXXXXXXx");
+            if (!response.ok || result.error) {
+                throw new Error(result.error || 'Failed to submit filters');
             }
 
-            const result: JobSubmissionResult = await response.json();
             setSubmitMessage({
                 type: 'success',
-                text: `✓ ${result.message} (Batch ID: ${result.batchId})`,
+                text: `Submitted ${result.totalJobs} job(s).`,
             });
-
-            // Lưu những gì đã submit thành công
-            setLastCommittedFilters((prev) => ({
-                ...prev,
-                [platform]: draftFilters[platform] || {},
-            }));
-
-            // Track những fields đã submit (để không show stale values từ batch cũ)
-            const submittedFieldsForPlatform = new Set(Object.keys(processedFilters));
-            setSubmittedFields((prev) => ({
-                ...prev,
-                [platform]: submittedFieldsForPlatform,
-            }));
-
-            // Lưu batchId để xóa Redis sau này
             setBatchIds((prev) => ({
                 ...prev,
                 [platform]: result.batchId,
             }));
 
-            console.log(`Successfully submitted ${result.totalJobs} jobs to Redis queue`);
+            await waitForBatchCompletion(platform, result.batchId);
+            clearTextInputsAfterSuccess(platform, processedFilters);
         } catch (error) {
             const errorText = error instanceof Error ? error.message : 'Unknown error';
             setSubmitMessage({
                 type: 'error',
-                text: `✗ Error: ${errorText}`,
+                text: `Error: ${errorText}`,
             });
-            console.error('Error submitting filters to Redis:', error);
+            setWorkerMessage(null);
         } finally {
+            setLoading(false);
             setIsSubmitting(false);
         }
     };
 
     const handleFind = async (platform: Platform) => {
         setActivePlatform(platform);
-        // Clear old data from store trước khi submit new filters (tránh mixing old + new)
-        resetFilters(platform);
 
         const platformFilters = draftFilters[platform] || {};
-        const platformConfig = PLATFORM_FILTER_CONFIGS.find((c) => c.platform === platform);
-
+        const platformConfig = PLATFORM_FILTER_CONFIGS.find((config) => config.platform === platform);
         const processedFilters: Record<string, string[] | number> = {};
 
-        // Xử lý các fields từ draftFilters
         Object.entries(platformFilters).forEach(([key, value]) => {
             if (typeof value === 'string') {
                 const arrayValue = value
                     .split(',')
-                    .map((v) => v.trim())
-                    .filter((v) => v);
+                    .map((item) => item.trim())
+                    .filter(Boolean);
+
                 if (arrayValue.length > 0) {
                     processedFilters[key] = arrayValue;
                     setFilterValue(platform, key as keyof PlatformFilterValues, arrayValue);
@@ -188,38 +283,129 @@ export default function FilterPanel() {
             }
         });
 
-        // Thêm slider fields (như limit) nếu chưa có, dùng default value
-        if (platformConfig) {
-            platformConfig.sections.forEach((section) => {
-                section.fields.forEach((field) => {
-                    if (field.type === 'slider' && !(field.key in processedFilters)) {
-                        // Nếu slider không có trong draftFilters, thêm default value = min
-                        const defaultValue = field.min ?? 1;
-                        processedFilters[field.key] = defaultValue;
-                        setFilterValue(platform, field.key as keyof PlatformFilterValues, defaultValue);
-                    }
-                });
+        platformConfig?.sections.forEach((section) => {
+            section.fields.forEach((field) => {
+                if (field.type === 'slider' && !(field.key in processedFilters)) {
+                    const defaultValue = field.defaultValue ?? field.min ?? 1;
+                    processedFilters[field.key] = defaultValue;
+                    setFilterValue(platform, field.key as keyof PlatformFilterValues, defaultValue);
+                }
             });
-        }
+        });
 
         await submitFiltersToRedis(platform, processedFilters);
     };
 
+    const handleClear = async (platform: Platform) => {
+        const batchId = batchIds[platform];
+
+        try {
+            if (batchId) {
+                const clearResponse = await fetch('/api/filter/clear', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ batchId, platform }),
+                });
+
+                if (!clearResponse.ok) {
+                    const errorData = (await clearResponse.json()) as ClearJobsResponse;
+                    throw new Error(errorData.error || 'Failed to clear queue jobs');
+                }
+            }
+
+            setDraftFilters((prev) => {
+                const updated = { ...prev };
+                delete updated[platform];
+                return updated;
+            });
+            setBatchIds((prev) => {
+                const updated = { ...prev };
+                delete updated[platform];
+                return updated;
+            });
+            resetFilters(platform);
+            setCurrentBatchId(platform, null);
+
+            if (activePlatform === platform) {
+                setVideos([]);
+            }
+
+            setSubmitMessage({
+                type: 'success',
+                text: 'Cleared filters.',
+            });
+            setWorkerMessage(null);
+            hideJobMessagesSoon();
+        } catch (error) {
+            setSubmitMessage({
+                type: 'error',
+                text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            });
+        }
+    };
+
+    const cleanupHistory = async (
+        platform: Platform,
+        mode: 'clear-history' | 'retention',
+        retentionDays?: 7 | 30,
+    ) => {
+        try {
+            const response = await fetch('/api/filter/cleanup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mode,
+                    platform,
+                    retentionDays,
+                }),
+            });
+            const result = (await response.json()) as CleanupResponse;
+
+            if (!response.ok || result.error) {
+                throw new Error(result.error || 'Failed to clean history');
+            }
+
+            if (mode === 'clear-history') {
+                setCurrentBatchId(platform, null);
+                if (activePlatform === platform) {
+                    setVideos([]);
+                }
+            }
+
+            setSubmitMessage({
+                type: 'success',
+                text: result.message || `Deleted ${result.deletedVideos ?? 0} videos.`,
+            });
+            setWorkerMessage(null);
+            hideJobMessagesSoon();
+        } catch (error) {
+            setSubmitMessage({
+                type: 'error',
+                text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            });
+            setWorkerMessage(null);
+        }
+    };
+
     return (
-        <div className="h-full flex flex-col bg-white border-r border-gray-200">
-            <div className="px-4 py-4 border-b border-gray-100">
-                <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wide">Platform</h2>
+        <div className="flex h-full flex-col border-r border-gray-200 bg-white">
+            <div className="border-b border-gray-100 px-4 py-4">
+                <h2 className="text-sm font-bold uppercase tracking-wide text-gray-900">Platform</h2>
             </div>
 
-            {/* Submit Message */}
             {submitMessage && (
                 <div
-                    className={`mx-2 mt-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${submitMessage.type === 'success'
-                        ? 'bg-green-50 border border-green-300 text-green-700'
-                        : 'bg-red-50 border border-red-300 text-red-700'
+                    className={`mx-2 mt-2 rounded-lg border px-3 py-2 text-xs font-medium ${submitMessage.type === 'success'
+                        ? 'border-green-300 bg-green-50 text-green-700'
+                        : 'border-red-300 bg-red-50 text-red-700'
                         }`}
                 >
                     {submitMessage.text}
+                </div>
+            )}
+            {workerMessage && (
+                <div className="mx-2 mt-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
+                    {workerMessage}
                 </div>
             )}
 
@@ -232,34 +418,32 @@ export default function FilterPanel() {
 
                     return (
                         <div key={config.platform} className="mb-1">
-                            {/* Platform Header */}
                             <div
-                                className={`flex items-center justify-between mx-2 px-3 py-2 rounded-lg cursor-pointer border transition-all ${isActive
+                                className={`mx-2 flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 transition-all ${isActive
                                     ? `${activeClass} border`
                                     : 'border-transparent hover:bg-gray-50'
                                     }`}
                             >
                                 <button
-                                    className="flex items-center gap-2 flex-1 text-left cursor-pointer"
+                                    className="flex flex-1 cursor-pointer items-center gap-2 text-left"
                                     onClick={() => handlePlatformClick(config.platform)}
                                 >
                                     <span className="text-base">{config.emoji}</span>
                                     <span className="text-sm font-semibold text-gray-700">{config.label}</span>
                                 </button>
                                 <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
+                                    onClick={(event) => {
+                                        event.stopPropagation();
                                         togglePlatformExpand(config.platform);
                                     }}
-                                    className="text-gray-400 hover:text-gray-600 ml-1 text-xs cursor-pointer"
+                                    className="ml-1 cursor-pointer text-xs text-gray-400 hover:text-gray-600"
                                 >
-                                    ▸
+                                    &gt;
                                 </button>
                             </div>
 
-                            {/* Platform Filters */}
                             {isExpanded && (
-                                <div className="mx-2 mt-1 mb-2 px-3 py-2 bg-gray-50 rounded-lg">
+                                <div className="mx-2 mb-2 mt-1 rounded-lg bg-gray-50 px-3 py-2">
                                     {config.sections.map((section) => (
                                         <FilterSection key={section.label} label={section.label}>
                                             {section.fields.map((field) => {
@@ -267,14 +451,15 @@ export default function FilterPanel() {
 
                                                 if (field.type === 'slider') {
                                                     const draftVal = draftFilters[config.platform]?.[field.key];
-                                                    const committedVal = lastCommittedFilters[config.platform]?.[field.key];
-                                                    const isFieldSubmitted = submittedFields[config.platform]?.has(field.key);
-                                                    const tempVal = draftVal ?? (isFieldSubmitted ? committedVal : undefined) ?? rawVal ?? (field.min ?? 0);
-                                                    const val = typeof tempVal === 'number' ? tempVal : (field.min ?? 0);
+                                                    const tempVal = draftVal ?? rawVal ?? field.defaultValue ?? field.min ?? 0;
+                                                    const val = typeof tempVal === 'number' ? tempVal : field.min ?? 0;
 
                                                     return (
-                                                        <div key={field.key}>
-                                                            <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                                        <label key={field.key} className="mb-3 block">
+                                                            <span className="mb-1 block text-xs font-medium text-gray-600">
+                                                                {field.label}
+                                                            </span>
+                                                            <div className="mb-1 flex justify-between text-xs text-gray-400">
                                                                 <span>{field.min ?? 0}</span>
                                                                 <span className="font-medium text-gray-600">{val}</span>
                                                                 <span>{field.max ?? 100}</span>
@@ -285,115 +470,81 @@ export default function FilterPanel() {
                                                                 max={field.max ?? 100}
                                                                 step={field.step ?? 1}
                                                                 value={val}
-                                                                onChange={(e) =>
-                                                                    handleFieldChange(
+                                                                onChange={(event) =>
+                                                                    handleSliderChange(
                                                                         config.platform,
                                                                         field.key as keyof PlatformFilterValues,
-                                                                        Number(e.target.value)
+                                                                        Number(event.target.value),
                                                                     )
                                                                 }
-                                                                className="w-full accent-blue-500 cursor-pointer"
+                                                                className="w-full cursor-pointer accent-blue-500"
                                                             />
-                                                        </div>
+                                                        </label>
                                                     );
                                                 }
 
                                                 const draftVal = draftFilters[config.platform]?.[field.key];
-                                                const committedVal = lastCommittedFilters[config.platform]?.[field.key];
-                                                // Only show committed value if field was actually submitted
-                                                const isFieldSubmitted = submittedFields[config.platform]?.has(field.key);
-                                                const val = draftVal ?? (isFieldSubmitted ? committedVal : undefined) ?? '';
+                                                const val = typeof draftVal === 'string' ? draftVal : '';
 
                                                 return (
-                                                    <input
-                                                        key={field.key}
-                                                        type="text"
-                                                        placeholder={field.placeholder ?? ''}
-                                                        value={val}
-                                                        onChange={(e) =>
-                                                            handleInputChange(config.platform, field.key, e.target.value)
-                                                        }
-                                                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white mb-2"
-                                                    />
+                                                    <label key={field.key} className="mb-2 block">
+                                                        <span className="mb-1 block text-xs font-medium text-gray-600">
+                                                            {field.label}
+                                                        </span>
+                                                        <input
+                                                            type="text"
+                                                            placeholder={field.placeholder ?? ''}
+                                                            value={val}
+                                                            onChange={(event) =>
+                                                                handleInputChange(config.platform, field.key, event.target.value)
+                                                            }
+                                                            className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                                        />
+                                                    </label>
                                                 );
                                             })}
                                         </FilterSection>
                                     ))}
 
-                                    <div className="flex justify-end gap-2 mt-3">
+                                    <div className="mt-3 flex justify-end gap-2">
                                         <button
-                                            onClick={async () => {
-                                                const batchId = batchIds[config.platform];
-
-                                                try {
-                                                    // Nếu có batchId, call API để xóa từ Redis trước
-                                                    if (batchId) {
-                                                        const clearResponse = await fetch('/api/filter/clear', {
-                                                            method: 'POST',
-                                                            headers: { 'Content-Type': 'application/json' },
-                                                            body: JSON.stringify({ batchId, platform: config.platform }),
-                                                        });
-
-                                                        if (clearResponse.ok) {
-                                                            const clearResult = await clearResponse.json();
-                                                            console.log(`✓ Cleared ${clearResult.removedCount} jobs from Redis for batch: ${batchId}`);
-                                                            setSubmitMessage({
-                                                                type: 'success',
-                                                                text: `✓ Cleared ${clearResult.removedCount} jobs from Redis`,
-                                                            });
-                                                        } else {
-                                                            const errorData = await clearResponse.json();
-                                                            console.error('Clear failed:', errorData);
-                                                            setSubmitMessage({
-                                                                type: 'error',
-                                                                text: `✗ Failed to clear: ${errorData.error}`,
-                                                            });
-                                                        }
-                                                    }
-
-                                                    // Xóa local state
-                                                    setDraftFilters((prev) => {
-                                                        const updated = { ...prev };
-                                                        delete updated[config.platform];
-                                                        return updated;
-                                                    });
-                                                    setLastCommittedFilters((prev) => {
-                                                        const updated = { ...prev };
-                                                        delete updated[config.platform];
-                                                        return updated;
-                                                    });
-                                                    setSubmittedFields((prev) => {
-                                                        const updated = { ...prev };
-                                                        delete updated[config.platform];
-                                                        return updated;
-                                                    });
-                                                    setBatchIds((prev) => {
-                                                        const updated = { ...prev };
-                                                        delete updated[config.platform];
-                                                        return updated;
-                                                    });
-
-                                                    // Xóa từ Zustand store để tránh stale data
-                                                    resetFilters(config.platform);
-                                                } catch (error) {
-                                                    console.error('Error in Clear button:', error);
-                                                    setSubmitMessage({
-                                                        type: 'error',
-                                                        text: `✗ Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                                                    });
-                                                }
-                                            }}
-                                            className="px-4 py-2 bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg hover:bg-gray-300 transition-colors cursor-pointer"
+                                            onClick={() => void handleClear(config.platform)}
+                                            className="cursor-pointer rounded-lg bg-gray-200 px-4 py-2 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-300"
                                         >
                                             Clear
                                         </button>
                                         <button
-                                            onClick={() => handleFind(config.platform)}
+                                            onClick={() => void handleFind(config.platform)}
                                             disabled={isSubmitting}
-                                            className="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 disabled:bg-blue-400 transition-colors cursor-pointer"
+                                            className="cursor-pointer rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:bg-blue-400"
                                         >
                                             {isSubmitting ? 'Submitting...' : 'Find'}
                                         </button>
+                                    </div>
+                                    <div className="mt-3 border-t border-gray-200 pt-3">
+                                        <div className="mb-2 text-xs font-semibold text-gray-500">
+                                            History
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <button
+                                                onClick={() => void cleanupHistory(config.platform, 'retention', 7)}
+                                                className="rounded-md bg-white px-2 py-1.5 text-xs font-medium text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100"
+                                            >
+                                                Keep 7d
+                                            </button>
+                                            <button
+                                                onClick={() => void cleanupHistory(config.platform, 'retention', 30)}
+                                                className="rounded-md bg-white px-2 py-1.5 text-xs font-medium text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100"
+                                            >
+                                                Keep 30d
+                                            </button>
+                                            <button
+                                                onClick={() => void cleanupHistory(config.platform, 'clear-history')}
+                                                className="rounded-md bg-red-50 px-2 py-1.5 text-xs font-semibold text-red-700 ring-1 ring-red-200 hover:bg-red-100"
+                                            >
+                                                Clear history
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             )}

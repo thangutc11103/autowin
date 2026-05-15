@@ -8,8 +8,29 @@ import type {
 import type { NextRequest } from "next/server";
 
 function normalizeInputValue(value: string): string {
-  return value
-    .trim()
+  const trimmed = value.trim();
+
+  try {
+    const parsed = new URL(trimmed);
+    const hostname = parsed.hostname.replace(/^www\./, "");
+    const segments = parsed.pathname.split("/").filter(Boolean);
+
+    if (hostname === "instagram.com" && segments[0]) {
+      return segments[0].replace(/^@/, "");
+    }
+
+    if (hostname === "facebook.com" && segments[0]) {
+      return segments[0].replace(/^@/, "");
+    }
+
+    if (hostname === "tiktok.com" && segments[0]) {
+      return segments[0].replace(/^@/, "");
+    }
+  } catch {
+    // Continue with plain username/hashtag cleanup below.
+  }
+
+  return trimmed
     .replace(/^#/, "")
     .replace(/^@/, "")
     .replace(/^\/+/, "")
@@ -22,12 +43,29 @@ function buildTikTokTargetUrl(type: JobType, rawValue: string): string {
   switch (type) {
     case "category":
       return `https://www.tiktok.com/discover/${encodeURIComponent(value)}`;
+    case "search":
+      return `https://www.tiktok.com/search?q=${encodeURIComponent(value)}`;
     case "hashtag":
       return `https://www.tiktok.com/tag/${encodeURIComponent(value)}`;
     case "account":
       return `https://www.tiktok.com/@${encodeURIComponent(value)}`;
     default:
       throw new Error(`Unsupported TikTok job type: ${type}`);
+  }
+}
+
+function buildFacebookTargetUrl(type: JobType, rawValue: string): string {
+  const value = normalizeInputValue(rawValue);
+
+  switch (type) {
+    case "category":
+      return `https://www.facebook.com/watch/search/?q=${encodeURIComponent(value)}`;
+    case "hashtag":
+      return `https://www.facebook.com/hashtag/${encodeURIComponent(value)}`;
+    case "account":
+      return `https://facebook.com/${encodeURIComponent(value)}/reels/`;
+    default:
+      throw new Error(`Unsupported Facebook job type: ${type}`);
   }
 }
 
@@ -46,14 +84,16 @@ function buildTargetUrl(
     return buildTikTokTargetUrl(type, normalizedValue);
   }
 
+  if (platform === "facebook") {
+    return buildFacebookTargetUrl(type, normalizedValue);
+  }
+
   if (type === "hashtag") {
     switch (platform) {
       case "douyin":
         return `https://www.douyin.com/search/${encodeURIComponent(normalizedValue)}`;
       case "youtube":
         return `https://www.youtube.com/results?search_query=%23${encodeURIComponent(normalizedValue)}`;
-      case "facebook":
-        return `https://www.facebook.com/hashtag/${encodeURIComponent(normalizedValue)}`;
       case "instagram":
         return `https://www.instagram.com/explore/tags/${encodeURIComponent(normalizedValue)}`;
       default:
@@ -65,10 +105,8 @@ function buildTargetUrl(
     switch (platform) {
       case "youtube":
         return `https://www.youtube.com/@${encodeURIComponent(normalizedValue)}`;
-      case "facebook":
-        return `https://www.facebook.com/${encodeURIComponent(normalizedValue)}`;
       case "instagram":
-        return `https://www.instagram.com/${encodeURIComponent(normalizedValue)}`;
+        return `https://www.instagram.com/${encodeURIComponent(normalizedValue)}/reels/`;
       case "douyin":
         return `https://www.douyin.com/search/${encodeURIComponent(normalizedValue)}`;
       default:
@@ -79,8 +117,6 @@ function buildTargetUrl(
   switch (platform) {
     case "youtube":
       return `https://www.youtube.com/results?search_query=${encodeURIComponent(normalizedValue)}`;
-    case "facebook":
-      return `https://www.facebook.com/search/top?q=${encodeURIComponent(normalizedValue)}`;
     case "instagram":
       return `https://www.instagram.com/explore/tags/${encodeURIComponent(normalizedValue)}`;
     case "douyin":
@@ -158,10 +194,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await addBulkCrawlJobs(jobs);
+    const jobIds = await addBulkCrawlJobs(jobs);
 
     return Response.json({
       batchId,
+      jobIds,
       totalJobs: jobs.length,
       platform: body.platform,
       message: `Successfully submitted ${jobs.length} jobs to crawl queue`,

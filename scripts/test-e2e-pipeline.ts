@@ -18,6 +18,7 @@ import {
   ensureScrapeStorage,
   saveSuccessfulScrape,
 } from "@/lib/database/scrape-storage";
+import type { ScrapedVideo } from "@/types/scrape";
 
 async function e2eTest() {
   console.log("\n████████████████████████████████████████████████████████");
@@ -57,19 +58,15 @@ async function e2eTest() {
     // STEP 3: Map Data
     console.log("[STEP 3] Mapping scraped videos to database format...\n");
 
-    const videosArray = Array.isArray(scrapeResult.data)
-      ? scrapeResult.data
-      : Object.values(scrapeResult.data || {});
+    const videosArray = scrapeResult.data;
 
-    const mappedVideos = videosArray.map((video: any) => ({
+    const mappedVideos: ScrapedVideo[] = videosArray.map((video) => ({
       externalId: video.video_id || `tiktok_${video.title}`,
       title: video.title || "Untitled",
       url: video.video_url,
       platform: "tiktok" as const,
       author: video.author || "unknown",
-      views: video.views || undefined,
       thumbnail: video.thumbnail_url || undefined,
-      uploadedAt: video.uploaded_at || undefined,
       crawledAt: new Date().toISOString(),
       rawPayload: { ...video },
     }));
@@ -82,7 +79,6 @@ async function e2eTest() {
       const first = mappedVideos[0];
       console.log(`  • URL: ${first.url}`);
       console.log(`  • Author: ${first.author}`);
-      console.log(`  • Views: ${first.views}`);
       console.log(`  • Title: ${first.title}\n`);
     }
 
