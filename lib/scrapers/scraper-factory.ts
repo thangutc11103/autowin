@@ -3,6 +3,7 @@ import type { JobType } from "@/types/job";
 import { FacebookPlaywrightScraper } from "./facebook-decodo-scraper";
 import { InstagramPlaywrightScraper } from "./instagram-playwright-scraper";
 import { TikTokDecodoScraper } from "./tiktok-decodo-scraper";
+import { YouTubeShortsScraper } from "./youtube-shorts-scraper";
 
 /**
  * Strategy Pattern: Factory để tạo các Scraper khác nhau cho từng nền tảng
@@ -10,7 +11,16 @@ import { TikTokDecodoScraper } from "./tiktok-decodo-scraper";
  */
 
 export interface ScraperStrategy {
-  crawl(url: string, type: JobType, limit?: number): Promise<ScraperCrawlResult>;
+  crawl(
+    url: string,
+    type: JobType,
+    limit?: number,
+    options?: ScraperCrawlOptions,
+  ): Promise<ScraperCrawlResult>;
+}
+
+export interface ScraperCrawlOptions {
+  authCookies?: string;
 }
 
 export interface ScraperVideo {
@@ -69,6 +79,9 @@ class TikTokScraper implements ScraperStrategy {
         thumbnail_url: v.thumbnail_url,
         platform: "tiktok" as const,
         title: v.title || `${v.author}'s TikTok`,
+        rawPayload: {
+          videoId: v.video_id,
+        },
       }));
 
       console.log(`[TikTok] Found ${videos.length} videos`);
@@ -133,24 +146,26 @@ class InstagramScraper implements ScraperStrategy {
     url: string,
     type: JobType,
     limit?: number,
+    options?: ScraperCrawlOptions,
   ): Promise<ScraperCrawlResult> {
     console.log(`[Instagram] Crawling ${type}: ${url}`);
-    return this.playwrightScraper.crawlUrl(url, type, limit);
+    return this.playwrightScraper.crawlUrl(url, type, limit, {
+      authCookies: options?.authCookies,
+    });
   }
 }
 
 // Example Scraper cho YouTube
 class YouTubeScraper implements ScraperStrategy {
-  async crawl(url: string, type: JobType): Promise<ScraperCrawlResult> {
-    // TODO: Implement YouTube crawling logic
-    console.log(`Crawling YouTube ${type}: ${url}`);
-    return {
-      platform: "youtube",
-      type,
-      url,
-      count: 0,
-      data: [],
-    };
+  private shortsScraper = new YouTubeShortsScraper();
+
+  async crawl(
+    url: string,
+    type: JobType,
+    limit?: number,
+  ): Promise<ScraperCrawlResult> {
+    console.log(`[YouTube] Crawling ${type}: ${url}`);
+    return this.shortsScraper.crawlUrl(url, type, limit);
   }
 }
 

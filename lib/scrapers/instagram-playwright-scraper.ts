@@ -1,4 +1,10 @@
-import { chromium, type Browser, type Page, type Response } from "playwright";
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Page,
+  type Response,
+} from "playwright";
 import type { JobType } from "@/types/job";
 import type { ScraperCrawlResult, ScraperVideo } from "./scraper-factory";
 
@@ -34,7 +40,95 @@ interface InstagramMediaResponse {
 }
 
 export class InstagramPlaywrightScraper {
+  private getInstagramCookieHeader(authCookies?: string): string {
+    return (
+      authCookies ||
+      process.env.INSTAGRAM_COOKIES ||
+      process.env.INSTAGRAM_COOKIE ||
+      ""
+    ).trim();
+  }
+
+  private async addInstagramCookies(
+    context: BrowserContext,
+    authCookies?: string,
+  ): Promise<void> {
+    const cookieHeader = this.getInstagramCookieHeader(authCookies);
+
+    if (!cookieHeader) {
+      return;
+    }
+
+    const cookies = cookieHeader
+      .split(";")
+      .map((cookie) => cookie.trim())
+      .filter(Boolean)
+      .map((cookie) => {
+        const separatorIndex = cookie.indexOf("=");
+        const name =
+          separatorIndex >= 0 ? cookie.slice(0, separatorIndex).trim() : "";
+        const value =
+          separatorIndex >= 0 ? cookie.slice(separatorIndex + 1).trim() : "";
+
+        return {
+          name,
+          value,
+          domain: ".instagram.com",
+          path: "/",
+          secure: true,
+          httpOnly: false,
+          sameSite: "Lax" as const,
+        };
+      })
+      .filter((cookie) => cookie.name && cookie.value);
+
+    if (cookies.length > 0) {
+      await context.addCookies(cookies);
+      console.log(`  [Auth] Loaded ${cookies.length} Instagram cookie(s)`);
+    }
+  }
+
+  private extractHashtagFromSearchUrl(url: string): string | null {
+    try {
+      const parsed = new URL(url);
+      const query = parsed.searchParams.get("q");
+
+      if (!query) {
+        return null;
+      }
+
+      const tag = query.trim().replace(/^#/, "");
+      return tag || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private getHashtagFallbackUrl(url: string): string | null {
+    const tag = this.extractHashtagFromSearchUrl(url);
+
+    return tag
+      ? `${INSTAGRAM_ORIGIN}/explore/tags/${encodeURIComponent(tag)}/`
+      : null;
+  }
+
   private getListingUrl(url: string, type: JobType): string {
+    if (type === "hashtag") {
+      try {
+        const parsed = new URL(url);
+        const query = parsed.searchParams.get("q");
+
+        if (query) {
+          const tag = query.trim().replace(/^#/, "");
+          return `${INSTAGRAM_ORIGIN}/explore/search/keyword/?q=${encodeURIComponent(`#${tag}`)}`;
+        }
+      } catch {
+        return url;
+      }
+
+      return url;
+    }
+
     if (type !== "account") {
       return url;
     }
@@ -54,6 +148,10 @@ export class InstagramPlaywrightScraper {
   }
 
   private extractSourceAuthor(sourceUrl: string): string | undefined {
+    if (sourceUrl.includes("/explore/search/keyword/")) {
+      return undefined;
+    }
+
     try {
       const parsed = new URL(sourceUrl);
       return parsed.pathname.split("/").filter(Boolean)[0];
@@ -185,6 +283,42 @@ export class InstagramPlaywrightScraper {
       .catch(() => undefined);
   }
 
+  private async getBlockedPageReason(page: Page): Promise<string | null> {
+    return page.evaluate(() => {
+      const bodyText = document.body.innerText.toLowerCase();
+      const title = document.title.toLowerCase();
+      const anchors = Array.from(document.querySelectorAll("a[href]")).map(
+        (link) => link.getAttribute("href") || "",
+      );
+      const hasContentLink = anchors.some(
+        (href) => href.includes("/reel/") || href.includes("/p/"),
+      );
+
+      if (hasContentLink) {
+        return null;
+      }
+
+      if (
+        title.includes("không thể tải trang") ||
+        bodyText.includes("đã xảy ra lỗi") ||
+        bodyText.includes("couldn't load") ||
+        bodyText.includes("something went wrong")
+      ) {
+        return "Instagram returned an error page";
+      }
+
+      if (
+        bodyText.includes("đăng nhập") ||
+        bodyText.includes("log in") ||
+        bodyText.includes("sign up")
+      ) {
+        return "Instagram requires login for this page";
+      }
+
+      return null;
+    });
+  }
+
   private async extractReelCandidates(
     page: Page,
     listingUrl: string,
@@ -218,9 +352,9 @@ export class InstagramPlaywrightScraper {
         return rawUrl;
       };
 
-      document.querySelectorAll("a[href*='/reel/']").forEach((link) => {
+      document.querySelectorAll("a[href*='/reel/'], a[href*='/p/']").forEach((link) => {
         const href = link.getAttribute("href") || "";
-        const match = href.match(/\\/reel\\/([^/?#]+)/);
+        const match = href.match(/\\/(?:reel|p)\\/([^/?#]+)/);
         const shortcode = match && match[1];
 
         if (!shortcode || seen.has(shortcode)) {
@@ -242,7 +376,9 @@ export class InstagramPlaywrightScraper {
 
         candidates.push({
           shortcode,
-          reelUrl: payload.origin + "/reel/" + shortcode + "/",
+          reelUrl: href.startsWith("http")
+            ? href
+            : payload.origin + href,
           title,
           thumbnail_url: normalizeImageUrl(imageSrc),
           author: payload.author || undefined,
@@ -354,6 +490,7 @@ export class InstagramPlaywrightScraper {
     url: string,
     type: JobType,
     limit = 30,
+    options: { authCookies?: string } = {},
   ): Promise<ScraperCrawlResult> {
     const requestedLimit = Number.isFinite(limit) && limit > 0 ? limit : 30;
     const listingUrl = this.getListingUrl(url, type);
@@ -361,14 +498,14 @@ export class InstagramPlaywrightScraper {
     console.log(`\n[Instagram ${type}] Playwright listing: ${listingUrl}`);
     console.log(`  [Limit] ${requestedLimit}`);
 
-    if (type !== "account") {
+    if (type !== "account" && type !== "hashtag") {
       return {
         platform: "instagram",
         type,
         url: listingUrl,
         count: 0,
         data: [],
-        error: "Instagram scraper only supports account jobs",
+        error: "Instagram scraper only supports account and hashtag jobs",
       };
     }
 
@@ -385,6 +522,7 @@ export class InstagramPlaywrightScraper {
           height: 900,
         },
       });
+      await this.addInstagramCookies(context, options.authCookies);
       const page = await context.newPage();
       await this.preparePage(page);
 
@@ -409,6 +547,49 @@ export class InstagramPlaywrightScraper {
           listingUrl,
           requestedLimit,
         );
+      }
+
+      if (type === "hashtag" && candidates.length === 0) {
+        const fallbackUrl = this.getHashtagFallbackUrl(listingUrl);
+
+        if (fallbackUrl) {
+          console.log(
+            `  [Fallback] Search page had no reel/post links; trying tag page: ${fallbackUrl}`,
+          );
+
+          await page.goto(fallbackUrl, {
+            waitUntil: "domcontentloaded",
+            timeout: 45000,
+          });
+          await this.dismissDialogs(page);
+          await page.waitForTimeout(3500);
+
+          candidates = await this.extractReelCandidates(
+            page,
+            fallbackUrl,
+            requestedLimit,
+          );
+
+          for (let attempt = 0; attempt < 6 && candidates.length < requestedLimit; attempt += 1) {
+            await page.mouse.wheel(0, 1400);
+            await page.waitForTimeout(1200);
+            candidates = await this.extractReelCandidates(
+              page,
+              fallbackUrl,
+              requestedLimit,
+            );
+          }
+        }
+      }
+
+      if (type === "hashtag" && candidates.length === 0) {
+        const blockedReason = await this.getBlockedPageReason(page);
+
+        if (blockedReason) {
+          throw new Error(
+            `${blockedReason}. Add INSTAGRAM_COOKIES to .env.local with a logged-in Instagram cookie header, then restart the worker.`,
+          );
+        }
       }
 
       const videos: InstagramListingVideo[] = [];

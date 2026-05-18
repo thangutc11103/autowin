@@ -12,10 +12,12 @@ export interface CrawlJobData {
   limit: number;
   createdAt: string;
   jobId?: string;
+  authCookies?: string;
 }
 
 export interface DecomposeFilterRequest {
   platform: Platform;
+  authCookies?: string;
   filters: {
     danh_muc?: string[];
     search?: string[];

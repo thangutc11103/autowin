@@ -12,9 +12,85 @@ dotenv.config({ path: ".env.local" });
 import { Worker, QueueEvents } from "bullmq";
 import { getRedis } from "@/lib/redis";
 import { ScraperFactory } from "@/lib/scrapers/scraper-factory";
-import { saveSuccessfulScrape } from "@/lib/database/scrape-storage";
+import {
+  saveSuccessfulScrape,
+  updateScrapedVideoMediaByJobUrl,
+} from "@/lib/database/scrape-storage";
+import { resolveMediaWithYtDlp } from "@/lib/media/yt-dlp-resolver";
 import type { CrawlJobData } from "@/types/job";
 import type { ScrapedVideo } from "@/types/scrape";
+
+const MEDIA_WARMUP_LIMIT = Math.max(
+  0,
+  Number(process.env.MEDIA_RESOLVE_WARMUP_LIMIT || 8),
+);
+const MEDIA_WARMUP_CONCURRENCY = Math.max(
+  1,
+  Number(process.env.MEDIA_RESOLVE_WARMUP_CONCURRENCY || 2),
+);
+
+async function warmupMediaUrls(params: {
+  jobId: string;
+  videos: ScrapedVideo[];
+}) {
+  if (MEDIA_WARMUP_LIMIT <= 0) {
+    return;
+  }
+
+  const pendingVideos = params.videos
+    .filter((video) => !video.rawPayload?.mediaVideoUrl)
+    .slice(0, MEDIA_WARMUP_LIMIT);
+
+  if (pendingVideos.length === 0) {
+    return;
+  }
+
+  console.log(
+    `[MEDIA] Warming up ${pendingVideos.length} media URL(s) with yt-dlp`,
+  );
+
+  let cursor = 0;
+  const workers = Array.from({
+    length: Math.min(MEDIA_WARMUP_CONCURRENCY, pendingVideos.length),
+  }).map(async () => {
+    while (cursor < pendingVideos.length) {
+      const video = pendingVideos[cursor];
+      cursor += 1;
+
+      if (!video) {
+        continue;
+      }
+
+      const resolved = await resolveMediaWithYtDlp(video.url);
+
+      if (!resolved.success || !resolved.mediaVideoUrl) {
+        console.log(
+          `[MEDIA] Skip ${video.url}: ${resolved.error || "no media URL"}`,
+        );
+        continue;
+      }
+
+      await updateScrapedVideoMediaByJobUrl({
+        jobId: params.jobId,
+        videoUrl: video.url,
+        title: resolved.title,
+        thumbnailUrl: resolved.thumbnailUrl,
+        rawPayload: {
+          ...resolved.rawPayload,
+          mediaVideoUrl: resolved.mediaVideoUrl,
+          mediaAudioUrl: resolved.mediaAudioUrl,
+          ytDlpDuration: resolved.duration,
+          ytDlpExtractor: resolved.extractor,
+        },
+      });
+
+      console.log(`[MEDIA] Resolved preview URL for ${video.url}`);
+    }
+  });
+
+  await Promise.all(workers);
+  console.log("[MEDIA] Warm-up completed");
+}
 
 /**
  * Setup Worker Processor
@@ -50,7 +126,9 @@ function setupWorker() {
         await job.updateProgress(75);
         console.log(`[JOB ${job.id}] ⧖ Crawling...`);
 
-        const scrapeResult = await scraper.crawl(targetUrl, type, limit);
+        const scrapeResult = await scraper.crawl(targetUrl, type, limit, {
+          authCookies: job.data.authCookies,
+        });
 
         if (scrapeResult.error) {
           throw new Error(`Scraper failed: ${scrapeResult.error}`);
@@ -140,6 +218,17 @@ function setupWorker() {
               `[JOB ${job.id}] ✅ Saved ${savedCount} videos to Supabase`,
             );
             console.log(`[JOB ${job.id}] Database result:`, dbResult);
+
+            void warmupMediaUrls({
+              jobId: dbResult.jobId,
+              videos: mappedVideos,
+            }).catch((mediaError) => {
+              const mediaMsg =
+                mediaError instanceof Error
+                  ? mediaError.message
+                  : String(mediaError);
+              console.error(`[MEDIA] Warm-up failed: ${mediaMsg}`);
+            });
 
             // Log each saved video
             mappedVideos.slice(0, 3).forEach((video, idx) => {

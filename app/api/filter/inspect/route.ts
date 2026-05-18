@@ -15,6 +15,16 @@ interface InspectJobData {
   finishedOn: string | null;
 }
 
+function sanitizeJobData(data: CrawlJobData | undefined) {
+  if (!data) {
+    return {};
+  }
+
+  const safeData = { ...data };
+  delete safeData.authCookies;
+  return safeData;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -94,7 +104,7 @@ export async function GET(request: NextRequest) {
       try {
         return {
           id: job.id || "unknown",
-          data: job.data || {},
+          data: sanitizeJobData(job.data),
           state: jobStateMap.get(job.id || "") || "unknown",
           progress: typeof job.progress === "function" ? job.progress() : 0,
           attempts: job.attemptsMade || 0,

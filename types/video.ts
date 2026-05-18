@@ -16,6 +16,10 @@ export interface Video {
   rawPayload?: Record<string, unknown>;
   mediaVideoUrl?: string | null;
   mediaAudioUrl?: string | null;
+  preparedLocalPath?: string;
+  preparedLocalUrl?: string;
+  preparedAt?: string;
+  preparedSource?: "tiktok-api" | "direct-media" | "ffmpeg-mux";
 }
 
 export interface VideoFilters {

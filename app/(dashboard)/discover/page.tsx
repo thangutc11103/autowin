@@ -28,6 +28,12 @@ interface VideosResponse {
     error?: string;
 }
 
+interface ResolveVideoResponse {
+    success?: boolean;
+    video?: Video;
+    error?: string;
+}
+
 function getPlatformDisplayName(platform: Platform): string {
     return PLATFORM_LABELS[platform];
 }
@@ -71,7 +77,21 @@ function VideoCard({ video }: { video: Video }) {
     const platformClass = PLATFORM_BADGES[video.platform];
     const previewRef = useRef<HTMLVideoElement | null>(null);
     const [isPreviewing, setIsPreviewing] = useState(false);
-    const canPreview = Boolean(video.mediaVideoUrl);
+    const [mediaVideoUrl, setMediaVideoUrl] = useState(video.mediaVideoUrl || null);
+    const [isResolvingPreview, setIsResolvingPreview] = useState(false);
+    const [resolveFailed, setResolveFailed] = useState(false);
+    const canPreview = Boolean(mediaVideoUrl);
+
+    useEffect(() => {
+        if (!isPreviewing || !mediaVideoUrl || !previewRef.current) {
+            return;
+        }
+
+        previewRef.current.currentTime = 0;
+        void previewRef.current.play().catch(() => {
+            setIsPreviewing(false);
+        });
+    }, [isPreviewing, mediaVideoUrl]);
 
     const toggleSelect = () => {
         if (selected) {
@@ -81,15 +101,55 @@ function VideoCard({ video }: { video: Video }) {
         }
     };
 
-    const startPreview = () => {
-        if (!previewRef.current || !canPreview) {
+    const playPreview = () => {
+        if (!mediaVideoUrl) {
             return;
         }
 
         setIsPreviewing(true);
-        previewRef.current.currentTime = 0;
-        void previewRef.current.play().catch(() => {
-            setIsPreviewing(false);
+    };
+
+    const resolvePreviewUrl = async () => {
+        if (mediaVideoUrl || isResolvingPreview || resolveFailed) {
+            return mediaVideoUrl;
+        }
+
+        setIsResolvingPreview(true);
+
+        try {
+            const response = await fetch('/api/videos/resolve', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ id: video.id }),
+            });
+            const result = (await response.json()) as ResolveVideoResponse;
+
+            if (!response.ok || result.error || !result.video?.mediaVideoUrl) {
+                throw new Error(result.error || 'Failed to resolve preview');
+            }
+
+            setMediaVideoUrl(result.video.mediaVideoUrl);
+            return result.video.mediaVideoUrl;
+        } catch {
+            setResolveFailed(true);
+            return null;
+        } finally {
+            setIsResolvingPreview(false);
+        }
+    };
+
+    const startPreview = () => {
+        if (mediaVideoUrl) {
+            playPreview();
+            return;
+        }
+
+        void resolvePreviewUrl().then((resolvedUrl) => {
+            if (resolvedUrl) {
+                setIsPreviewing(true);
+            }
         });
     };
 
@@ -141,10 +201,10 @@ function VideoCard({ video }: { video: Video }) {
                     </div>
                 )}
 
-                {video.mediaVideoUrl && (
+                {mediaVideoUrl && (
                     <video
                         ref={previewRef}
-                        src={video.mediaVideoUrl}
+                        src={mediaVideoUrl}
                         muted
                         loop
                         playsInline
@@ -160,9 +220,9 @@ function VideoCard({ video }: { video: Video }) {
                     </span>
                 )}
 
-                {canPreview && (
+                {(canPreview || isResolvingPreview) && (
                     <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100">
-                        Preview
+                        {isResolvingPreview ? 'Loading' : 'Preview'}
                     </span>
                 )}
 
@@ -211,7 +271,7 @@ function VideoGrid({ videos, isLoading }: { videos: Video[]; isLoading: boolean 
     return (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {videos.map((video) => (
-                <VideoCard key={video.id} video={video} />
+                <VideoCard key={`${video.id}-${video.mediaVideoUrl || ''}`} video={video} />
             ))}
         </div>
     );

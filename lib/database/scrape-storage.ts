@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { Pool, type PoolClient } from "pg";
 import type { CrawlJobData } from "@/types/job";
 import type { ScrapeResult } from "@/types/scrape";
+import type { Platform, Video } from "@/types/video";
 
 let pool: Pool | null = null;
 let schemaPromise: Promise<void> | null = null;
@@ -349,6 +350,145 @@ export async function closeScrapeStorage(): Promise<void> {
     pool = null;
     schemaPromise = null;
   }
+}
+
+function getStringPayloadValue(
+  payload: Record<string, unknown> | null,
+  key: string,
+): string | null {
+  const value = payload?.[key];
+
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function mapVideoRow(row: {
+  id: string | number;
+  title: string;
+  author?: string | null;
+  platform: string;
+  video_url: string;
+  thumbnail_url?: string | null;
+  raw_payload?: Record<string, unknown> | null;
+}): Video {
+  const rawPayload = (row.raw_payload || {}) as Record<string, unknown>;
+
+  return {
+    id: String(row.id),
+    title: row.title,
+    thumbnail: row.thumbnail_url || "",
+    platform: row.platform as Platform,
+    url: row.video_url,
+    description: row.author ? `By ${row.author}` : undefined,
+    rawPayload,
+    mediaVideoUrl: getStringPayloadValue(rawPayload, "mediaVideoUrl"),
+    mediaAudioUrl: getStringPayloadValue(rawPayload, "mediaAudioUrl"),
+  };
+}
+
+export async function getScrapedVideoById(id: string): Promise<Video | null> {
+  await ensureScrapeStorage();
+
+  return withClient(async (client) => {
+    const result = await client.query(
+      `
+        SELECT
+          id,
+          title,
+          author,
+          platform,
+          video_url,
+          thumbnail_url,
+          raw_payload
+        FROM scraped_videos
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [id],
+    );
+
+    const row = result.rows[0];
+    return row ? mapVideoRow(row) : null;
+  });
+}
+
+export async function updateScrapedVideoMediaById(params: {
+  id: string;
+  title?: string | null;
+  thumbnailUrl?: string | null;
+  rawPayload: Record<string, unknown>;
+}): Promise<Video | null> {
+  await ensureScrapeStorage();
+
+  return withClient(async (client) => {
+    const result = await client.query(
+      `
+        UPDATE scraped_videos
+        SET
+          title = COALESCE(NULLIF($2, ''), title),
+          thumbnail_url = COALESCE(NULLIF($3, ''), thumbnail_url),
+          raw_payload = raw_payload || $4::JSONB
+        WHERE id = $1
+        RETURNING
+          id,
+          title,
+          author,
+          platform,
+          video_url,
+          thumbnail_url,
+          raw_payload
+      `,
+      [
+        params.id,
+        params.title ?? null,
+        params.thumbnailUrl ?? null,
+        JSON.stringify(params.rawPayload),
+      ],
+    );
+
+    const row = result.rows[0];
+    return row ? mapVideoRow(row) : null;
+  });
+}
+
+export async function updateScrapedVideoMediaByJobUrl(params: {
+  jobId: string;
+  videoUrl: string;
+  title?: string | null;
+  thumbnailUrl?: string | null;
+  rawPayload: Record<string, unknown>;
+}): Promise<Video | null> {
+  await ensureScrapeStorage();
+
+  return withClient(async (client) => {
+    const result = await client.query(
+      `
+        UPDATE scraped_videos
+        SET
+          title = COALESCE(NULLIF($3, ''), title),
+          thumbnail_url = COALESCE(NULLIF($4, ''), thumbnail_url),
+          raw_payload = raw_payload || $5::JSONB
+        WHERE job_id = $1 AND video_url = $2
+        RETURNING
+          id,
+          title,
+          author,
+          platform,
+          video_url,
+          thumbnail_url,
+          raw_payload
+      `,
+      [
+        params.jobId,
+        params.videoUrl,
+        params.title ?? null,
+        params.thumbnailUrl ?? null,
+        JSON.stringify(params.rawPayload),
+      ],
+    );
+
+    const row = result.rows[0];
+    return row ? mapVideoRow(row) : null;
+  });
 }
 
 export async function clearScrapeHistory(params: {

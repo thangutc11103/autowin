@@ -26,6 +26,19 @@ function normalizeInputValue(value: string): string {
     if (hostname === "tiktok.com" && segments[0]) {
       return segments[0].replace(/^@/, "");
     }
+
+    if (
+      (hostname === "youtube.com" || hostname === "youtu.be") &&
+      segments[0]
+    ) {
+      if (segments[0] === "hashtag" && segments[1]) {
+        return segments[1].replace(/^#/, "");
+      }
+
+      if (segments[0].startsWith("@")) {
+        return segments[0].replace(/^@/, "");
+      }
+    }
   } catch {
     // Continue with plain username/hashtag cleanup below.
   }
@@ -58,14 +71,23 @@ function buildFacebookTargetUrl(type: JobType, rawValue: string): string {
   const value = normalizeInputValue(rawValue);
 
   switch (type) {
-    case "category":
-      return `https://www.facebook.com/watch/search/?q=${encodeURIComponent(value)}`;
-    case "hashtag":
-      return `https://www.facebook.com/hashtag/${encodeURIComponent(value)}`;
     case "account":
       return `https://facebook.com/${encodeURIComponent(value)}/reels/`;
     default:
       throw new Error(`Unsupported Facebook job type: ${type}`);
+  }
+}
+
+function buildYouTubeTargetUrl(type: JobType, rawValue: string): string {
+  const value = normalizeInputValue(rawValue);
+
+  switch (type) {
+    case "hashtag":
+      return `https://www.youtube.com/hashtag/${encodeURIComponent(value)}/shorts`;
+    case "account":
+      return `https://www.youtube.com/@${encodeURIComponent(value)}/shorts`;
+    default:
+      throw new Error(`Unsupported YouTube job type: ${type}`);
   }
 }
 
@@ -85,17 +107,19 @@ function buildTargetUrl(
   }
 
   if (platform === "facebook") {
-    return buildFacebookTargetUrl(type, normalizedValue);
+    return type === "account"
+      ? buildFacebookTargetUrl(type, normalizedValue)
+      : "";
+  }
+
+  if (platform === "youtube" && (type === "hashtag" || type === "account")) {
+    return buildYouTubeTargetUrl(type, normalizedValue);
   }
 
   if (type === "hashtag") {
     switch (platform) {
-      case "douyin":
-        return `https://www.douyin.com/search/${encodeURIComponent(normalizedValue)}`;
-      case "youtube":
-        return `https://www.youtube.com/results?search_query=%23${encodeURIComponent(normalizedValue)}`;
       case "instagram":
-        return `https://www.instagram.com/explore/tags/${encodeURIComponent(normalizedValue)}`;
+        return `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(`#${normalizedValue}`)}`;
       default:
         return "";
     }
@@ -103,12 +127,8 @@ function buildTargetUrl(
 
   if (type === "account") {
     switch (platform) {
-      case "youtube":
-        return `https://www.youtube.com/@${encodeURIComponent(normalizedValue)}`;
       case "instagram":
         return `https://www.instagram.com/${encodeURIComponent(normalizedValue)}/reels/`;
-      case "douyin":
-        return `https://www.douyin.com/search/${encodeURIComponent(normalizedValue)}`;
       default:
         return "";
     }
@@ -119,8 +139,6 @@ function buildTargetUrl(
       return `https://www.youtube.com/results?search_query=${encodeURIComponent(normalizedValue)}`;
     case "instagram":
       return `https://www.instagram.com/explore/tags/${encodeURIComponent(normalizedValue)}`;
-    case "douyin":
-      return `https://www.douyin.com/search/${encodeURIComponent(normalizedValue)}`;
     default:
       return "";
   }
@@ -171,6 +189,17 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
+        if (
+          body.platform === "instagram" &&
+          type === "hashtag" &&
+          !body.authCookies?.trim()
+        ) {
+          return Response.json(
+            { error: "Instagram hashtag search requires verified cookies" },
+            { status: 400 },
+          );
+        }
+
         const id = `${batchId}-${jobs.length}`;
 
         jobs.push({
@@ -183,6 +212,10 @@ export async function POST(request: NextRequest) {
           batchId,
           createdAt: new Date().toISOString(),
           jobId: id,
+          authCookies:
+            body.platform === "instagram" && type === "hashtag"
+              ? body.authCookies?.trim()
+              : undefined,
         });
       }
     }

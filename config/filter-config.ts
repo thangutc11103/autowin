@@ -103,6 +103,12 @@ export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
         label: "Bo loc",
         fields: [
           {
+            key: "hashtag",
+            label: "Hashtag",
+            placeholder: "#trending, #fyp",
+            type: "text",
+          },
+          {
             key: "ten_kenh_tai_khoan",
             label: "Tai khoan/Kenh",
             placeholder: "@saito, @dt_11103, lenti_2026",
@@ -125,7 +131,34 @@ export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
     platform: "youtube",
     label: "YouTube",
     emoji: "YT",
-    sections: [],
+    sections: [
+      {
+        label: "Bo loc",
+        fields: [
+          {
+            key: "hashtag",
+            label: "Hashtag",
+            placeholder: "#trending, #fyp, funny",
+            type: "text",
+          },
+          {
+            key: "ten_kenh_tai_khoan",
+            label: "Tai khoan/Kenh",
+            placeholder: "@saito, @dt_11103, @SigmaDuck777",
+            type: "text",
+          },
+          {
+            key: "limit",
+            label: "So video toi da",
+            type: "slider",
+            min: 1,
+            max: 50,
+            step: 1,
+            defaultValue: 1,
+          },
+        ],
+      },
+    ],
   },
   {
     platform: "douyin",

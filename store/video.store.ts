@@ -5,6 +5,7 @@ import type { Video, VideoFilters, Platform } from "@/types/video";
 interface VideoState {
   videos: Video[];
   selectedVideos: Video[];
+  postingVideos: Video[];
   filters: VideoFilters;
   isLoading: boolean;
   currentBatchByPlatform: Partial<Record<Platform, string>>;
@@ -12,10 +13,15 @@ interface VideoState {
   addSelected: (video: Video) => void;
   removeSelected: (id: string) => void;
   clearSelected: () => void;
+  saveSelectedToPosting: (ids: string[]) => void;
+  addPostingVideos: (videos: Video[]) => void;
+  removePosting: (id: string) => void;
+  clearPosting: () => void;
   setFilters: (filters: Partial<VideoFilters>) => void;
   setLoading: (loading: boolean) => void;
   setCurrentBatchId: (platform: Platform, batchId: string | null) => void;
   isVideoSelected: (id: string) => boolean;
+  isVideoPosting: (id: string) => boolean;
 }
 
 export const useVideoStore = create<VideoState>()(
@@ -23,6 +29,7 @@ export const useVideoStore = create<VideoState>()(
     (set, get) => ({
       videos: [],
       selectedVideos: [],
+      postingVideos: [],
       filters: {
         keyword: "",
         platform: "all",
@@ -41,6 +48,36 @@ export const useVideoStore = create<VideoState>()(
           selectedVideos: state.selectedVideos.filter((v) => v.id !== id),
         })),
       clearSelected: () => set({ selectedVideos: [] }),
+      saveSelectedToPosting: (ids) =>
+        set((state) => {
+          const selectedIds = new Set(ids);
+          const existingIds = new Set(state.postingVideos.map((v) => v.id));
+          const videosToAdd = state.selectedVideos.filter(
+            (video) => selectedIds.has(video.id) && !existingIds.has(video.id),
+          );
+
+          return {
+            postingVideos: [...state.postingVideos, ...videosToAdd],
+          };
+        }),
+      addPostingVideos: (videos) =>
+        set((state) => {
+          const incomingById = new Map(videos.map((video) => [video.id, video]));
+          const updatedExisting = state.postingVideos.map((video) =>
+            incomingById.get(video.id) || video,
+          );
+          const existingIds = new Set(state.postingVideos.map((v) => v.id));
+          const newVideos = videos.filter((video) => !existingIds.has(video.id));
+
+          return {
+            postingVideos: [...updatedExisting, ...newVideos],
+          };
+        }),
+      removePosting: (id) =>
+        set((state) => ({
+          postingVideos: state.postingVideos.filter((v) => v.id !== id),
+        })),
+      clearPosting: () => set({ postingVideos: [] }),
       setFilters: (filters) =>
         set((state) => ({
           filters: { ...state.filters, ...filters },
@@ -61,11 +98,14 @@ export const useVideoStore = create<VideoState>()(
           return { currentBatchByPlatform };
         }),
       isVideoSelected: (id) => get().selectedVideos.some((v) => v.id === id),
+      isVideoPosting: (id) => get().postingVideos.some((v) => v.id === id),
     }),
     {
       name: "find-app-video-ui",
       partialize: (state) => ({
         currentBatchByPlatform: state.currentBatchByPlatform,
+        selectedVideos: state.selectedVideos,
+        postingVideos: state.postingVideos,
       }),
     },
   ),

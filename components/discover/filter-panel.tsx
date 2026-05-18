@@ -35,6 +35,11 @@ interface VideosResponse {
     error?: string;
 }
 
+interface ValidateInstagramCookiesResponse {
+    success?: boolean;
+    error?: string;
+}
+
 const PLATFORM_ACTIVE_COLORS: Record<Platform, string> = {
     tiktok: 'bg-pink-50 border-pink-300 text-pink-700',
     douyin: 'bg-purple-50 border-purple-300 text-purple-700',
@@ -76,6 +81,14 @@ export default function FilterPanel() {
         text: string;
     } | null>(null);
     const [workerMessage, setWorkerMessage] = useState<string | null>(null);
+    const [instagramCookies, setInstagramCookies] = useState('');
+    const [instagramCookieStatus, setInstagramCookieStatus] = useState<{
+        type: 'idle' | 'checking' | 'valid' | 'error';
+        text: string;
+    }>({
+        type: 'idle',
+        text: '',
+    });
 
     const hideJobMessagesSoon = () => {
         window.setTimeout(() => {
@@ -120,6 +133,57 @@ export default function FilterPanel() {
     ) => {
         handleInputChange(platform, key, value);
         setFilterValue(platform, key, value);
+    };
+
+    const isInstagramHashtagUnlocked = instagramCookieStatus.type === 'valid';
+
+    const validateInstagramCookies = async () => {
+        const tagDraft = draftFilters.instagram?.hashtag;
+        const tag =
+            typeof tagDraft === 'string'
+                ? tagDraft.split(',')[0]?.trim().replace(/^#/, '')
+                : '';
+
+        if (!instagramCookies.trim()) {
+            setInstagramCookieStatus({
+                type: 'error',
+                text: 'Paste Instagram cookies first.',
+            });
+            return;
+        }
+
+        setInstagramCookieStatus({
+            type: 'checking',
+            text: 'Checking cookies...',
+        });
+
+        try {
+            const response = await fetch('/api/instagram/validate-cookies', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    cookies: instagramCookies,
+                    tag: tag || 'trending',
+                }),
+            });
+            const result = (await response.json()) as ValidateInstagramCookiesResponse;
+
+            if (!response.ok || !result.success) {
+                throw new Error(result.error || 'Cookies are not usable');
+            }
+
+            setInstagramCookieStatus({
+                type: 'valid',
+                text: 'Cookies verified. Hashtag input unlocked.',
+            });
+        } catch (error) {
+            setInstagramCookieStatus({
+                type: 'error',
+                text: error instanceof Error ? error.message : 'Cookie check failed',
+            });
+        }
     };
 
     const clearTextInputsAfterSuccess = (
@@ -220,6 +284,10 @@ export default function FilterPanel() {
             const request: DecomposeFilterRequest = {
                 platform,
                 filters: processedFilters as DecomposeFilterRequest['filters'],
+                authCookies:
+                    platform === 'instagram' && Array.isArray(processedFilters.hashtag)
+                        ? instagramCookies
+                        : undefined,
             };
 
             const response = await fetch('/api/filter/decompose', {
@@ -293,6 +361,19 @@ export default function FilterPanel() {
             });
         });
 
+        if (
+            platform === 'instagram' &&
+            Array.isArray(processedFilters.hashtag) &&
+            processedFilters.hashtag.length > 0 &&
+            !isInstagramHashtagUnlocked
+        ) {
+            setSubmitMessage({
+                type: 'error',
+                text: 'Verify Instagram cookies before using hashtag search.',
+            });
+            return;
+        }
+
         await submitFiltersToRedis(platform, processedFilters);
     };
 
@@ -325,6 +406,14 @@ export default function FilterPanel() {
             });
             resetFilters(platform);
             setCurrentBatchId(platform, null);
+
+            if (platform === 'instagram') {
+                setInstagramCookies('');
+                setInstagramCookieStatus({
+                    type: 'idle',
+                    text: '',
+                });
+            }
 
             if (activePlatform === platform) {
                 setVideos([]);
@@ -485,22 +574,69 @@ export default function FilterPanel() {
 
                                                 const draftVal = draftFilters[config.platform]?.[field.key];
                                                 const val = typeof draftVal === 'string' ? draftVal : '';
+                                                const isLockedInstagramHashtag =
+                                                    config.platform === 'instagram' &&
+                                                    field.key === 'hashtag' &&
+                                                    !isInstagramHashtagUnlocked;
+                                                const cookieStatusClass =
+                                                    instagramCookieStatus.type === 'valid'
+                                                        ? 'text-green-700'
+                                                        : instagramCookieStatus.type === 'error'
+                                                            ? 'text-red-700'
+                                                            : 'text-gray-600';
 
                                                 return (
-                                                    <label key={field.key} className="mb-2 block">
+                                                    <div key={field.key} className="mb-2 block">
                                                         <span className="mb-1 block text-xs font-medium text-gray-600">
                                                             {field.label}
                                                         </span>
-                                                        <input
-                                                            type="text"
-                                                            placeholder={field.placeholder ?? ''}
-                                                            value={val}
-                                                            onChange={(event) =>
-                                                                handleInputChange(config.platform, field.key, event.target.value)
-                                                            }
-                                                            className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                                        />
-                                                    </label>
+                                                        <div className={`relative ${isLockedInstagramHashtag ? 'min-h-20' : ''}`}>
+                                                            <input
+                                                                type="text"
+                                                                placeholder={field.placeholder ?? ''}
+                                                                value={val}
+                                                                disabled={isLockedInstagramHashtag}
+                                                                onChange={(event) =>
+                                                                    handleInputChange(config.platform, field.key, event.target.value)
+                                                                }
+                                                                className={`w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 ${isLockedInstagramHashtag ? 'pointer-events-none blur-[1px]' : ''
+                                                                    }`}
+                                                            />
+
+                                                            {isLockedInstagramHashtag && (
+                                                                <div className="absolute inset-0 rounded-md border border-orange-200 bg-white/85 p-2 shadow-sm backdrop-blur-[2px]">
+                                                                    <div className="flex gap-2">
+                                                                        <input
+                                                                            type="password"
+                                                                            placeholder="Instagram cookies"
+                                                                            value={instagramCookies}
+                                                                            onChange={(event) => {
+                                                                                setInstagramCookies(event.target.value);
+                                                                                setInstagramCookieStatus({
+                                                                                    type: 'idle',
+                                                                                    text: '',
+                                                                                });
+                                                                            }}
+                                                                            className="min-w-0 flex-1 rounded border border-orange-200 bg-white px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                                                                        />
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => void validateInstagramCookies()}
+                                                                            disabled={instagramCookieStatus.type === 'checking'}
+                                                                            className="shrink-0 rounded bg-orange-600 px-2 py-1 text-xs font-semibold text-white hover:bg-orange-700 disabled:bg-orange-300"
+                                                                        >
+                                                                            {instagramCookieStatus.type === 'checking' ? 'Checking' : 'Check'}
+                                                                        </button>
+                                                                    </div>
+                                                                    {instagramCookieStatus.text && (
+                                                                        <div className={`mt-1 text-[10px] leading-tight ${cookieStatusClass}`}>
+                                                                            {instagramCookieStatus.text}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                 );
                                             })}
                                         </FilterSection>

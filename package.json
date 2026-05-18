@@ -14,10 +14,12 @@
     "test:e2e": "tsx scripts/test-e2e-pipeline.ts"
   },
   "dependencies": {
+    "@tobyg74/tiktok-api-dl": "^1.3.7",
     "axios": "^1.16.0",
     "bullmq": "^5.76.6",
     "cheerio": "^1.2.0",
     "dotenv": "^17.4.2",
+    "ffmpeg-static": "^5.3.0",
     "http-proxy-agent": "^9.0.0",
     "https-proxy-agent": "^9.0.0",
     "ioredis": "^5.10.1",
