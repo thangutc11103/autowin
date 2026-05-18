@@ -22,7 +22,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = (await request.json().catch(() => ({}))) as ResolveVideoRequest;
+    const body = (await request
+      .json()
+      .catch(() => ({}))) as ResolveVideoRequest;
     const id = typeof body.id === "string" ? body.id.trim() : "";
 
     if (!id) {
