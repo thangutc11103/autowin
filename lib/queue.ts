@@ -2,7 +2,13 @@ import { Queue } from "bullmq";
 import { getRedis } from "./redis";
 import type { CrawlJobData } from "@/types/job";
 
+export interface PublishJobData {
+  postId: string;
+  targetId: string;
+}
+
 let crawlQueue: Queue<CrawlJobData> | null = null;
+let publishQueue: Queue<PublishJobData> | null = null;
 
 export function getCrawlQueue(): Queue<CrawlJobData> {
   if (!crawlQueue) {
@@ -55,9 +61,60 @@ export async function addBulkCrawlJobs(
   return jobs.map((job) => job.id || job.data?.id || "unknown");
 }
 
+export function getPublishQueue(): Queue<PublishJobData> {
+  if (!publishQueue) {
+    const connection = getRedis();
+    publishQueue = new Queue<PublishJobData>("publish-tasks", {
+      connection,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: "exponential",
+          delay: 5000,
+        },
+        removeOnComplete: {
+          age: 24 * 3600,
+          count: 1000,
+        },
+        removeOnFail: {
+          age: 24 * 3600,
+        },
+      },
+    });
+  }
+
+  return publishQueue;
+}
+
+export async function addPublishJob(params: {
+  postId: string;
+  targetId: string;
+  delayMs?: number;
+}): Promise<string> {
+  const queue = getPublishQueue();
+  const job = await queue.add(
+    "publish",
+    {
+      postId: params.postId,
+      targetId: params.targetId,
+    },
+    {
+      jobId: `publish-${params.targetId}`,
+      delay: Math.max(0, params.delayMs || 0),
+    },
+  );
+
+  return job.id || params.targetId;
+}
+
 export async function closeQueue(): Promise<void> {
   if (crawlQueue) {
     await crawlQueue.close();
     crawlQueue = null;
+  }
+
+  if (publishQueue) {
+    await publishQueue.close();
+    publishQueue = null;
   }
 }

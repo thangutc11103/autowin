@@ -11,11 +11,17 @@ dotenv.config({ path: ".env.local" });
 
 import { Worker, QueueEvents } from "bullmq";
 import { getRedis } from "@/lib/redis";
+import type { PublishJobData } from "@/lib/queue";
 import { ScraperFactory } from "@/lib/scrapers/scraper-factory";
 import {
   saveSuccessfulScrape,
   updateScrapedVideoMediaByJobUrl,
 } from "@/lib/database/scrape-storage";
+import {
+  markTargetFailed,
+  markTargetPublished,
+  markTargetPublishing,
+} from "@/lib/database/posting-storage";
 import { resolveMediaWithYtDlp } from "@/lib/media/yt-dlp-resolver";
 import type { CrawlJobData } from "@/types/job";
 import type { ScrapedVideo } from "@/types/scrape";
@@ -309,12 +315,74 @@ function setupWorker() {
   return worker;
 }
 
+function setupPublishWorker() {
+  const connection = getRedis();
+
+  const worker = new Worker<PublishJobData>(
+    "publish-tasks",
+    async (job) => {
+      const { postId, targetId } = job.data;
+
+      console.log(`[PUBLISH ${job.id}] Started post=${postId} target=${targetId}`);
+
+      try {
+        await job.updateProgress(20);
+        await markTargetPublishing({ postId, targetId });
+
+        await job.updateProgress(60);
+        // Placeholder adapter: real platform publishing APIs plug in here.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        await job.updateProgress(100);
+        await markTargetPublished({ postId, targetId });
+
+        console.log(`[PUBLISH ${job.id}] Completed post=${postId} target=${targetId}`);
+        return {
+          postId,
+          targetId,
+          publishedAt: new Date().toISOString(),
+          mocked: true,
+        };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        await markTargetFailed({ postId, targetId, error: errorMsg });
+        console.error(`[PUBLISH ${job.id}] FAILED: ${errorMsg}`);
+        throw error;
+      }
+    },
+    {
+      connection,
+      concurrency: 3,
+      autorun: false,
+    },
+  );
+
+  worker.on("ready", () => {
+    console.log("\nPublishing worker READY - Listening for publish jobs...\n");
+  });
+
+  worker.on("completed", (job) => {
+    console.log(`[PUBLISH EVENT] Job ${job.id} COMPLETED`);
+  });
+
+  worker.on("failed", (job, err) => {
+    console.error(`[PUBLISH EVENT] Job ${job?.id} FAILED:`, err.message);
+  });
+
+  worker.on("error", (err) => {
+    console.error("[PUBLISH EVENT] Worker ERROR:", err);
+  });
+
+  return worker;
+}
+
 /**
  * Setup Queue Events (Global monitoring)
  */
 function setupQueueEvents() {
   const connection = getRedis();
   const queueEvents = new QueueEvents("crawl-tasks", { connection });
+  const publishQueueEvents = new QueueEvents("publish-tasks", { connection });
 
   queueEvents.on("added", (data) => {
     console.log(`[QUEUE] Job added: ${data.jobId}`);
@@ -328,7 +396,19 @@ function setupQueueEvents() {
     console.log(`[QUEUE] Job failed: ${data.jobId}`);
   });
 
-  return queueEvents;
+  publishQueueEvents.on("added", (data) => {
+    console.log(`[PUBLISH QUEUE] Job added: ${data.jobId}`);
+  });
+
+  publishQueueEvents.on("completed", (data) => {
+    console.log(`[PUBLISH QUEUE] Job completed: ${data.jobId}`);
+  });
+
+  publishQueueEvents.on("failed", (data) => {
+    console.log(`[PUBLISH QUEUE] Job failed: ${data.jobId}`);
+  });
+
+  return { queueEvents, publishQueueEvents };
 }
 
 /**
@@ -354,23 +434,33 @@ async function start() {
 
     // Setup worker
     const worker = setupWorker();
-    const queueEvents = setupQueueEvents();
+    const publishWorker = setupPublishWorker();
+    const { queueEvents, publishQueueEvents } = setupQueueEvents();
 
-    // Start worker
-    await worker.run();
+    // Start workers concurrently. Worker.run() keeps running until closed.
+    void worker.run().catch((error) => {
+      console.error("[WORKER] Crawl worker stopped unexpectedly:", error);
+    });
+    void publishWorker.run().catch((error) => {
+      console.error("[WORKER] Publish worker stopped unexpectedly:", error);
+    });
 
     // Graceful shutdown
     process.on("SIGTERM", async () => {
       console.log("\n\n🛑 Shutting down worker gracefully...");
       await worker.close();
+      await publishWorker.close();
       await queueEvents.close();
+      await publishQueueEvents.close();
       process.exit(0);
     });
 
     process.on("SIGINT", async () => {
       console.log("\n\n🛑 Shutting down worker gracefully...");
       await worker.close();
+      await publishWorker.close();
       await queueEvents.close();
+      await publishQueueEvents.close();
       process.exit(0);
     });
   } catch (error) {

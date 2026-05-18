@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "create-oauth-routes.js",
+    "create_dirs.js",
+    "setup_oauth.js",
   ]),
 ]);
 

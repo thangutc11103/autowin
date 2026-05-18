@@ -35,7 +35,6 @@ export function createRateLimiter(requestsPerMinute: number = 60) {
     const ip =
       request.headers.get("x-forwarded-for") ||
       request.headers.get("x-real-ip") ||
-      request.ip ||
       "unknown";
 
     const key = `${ip}`;

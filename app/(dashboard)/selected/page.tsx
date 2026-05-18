@@ -1,11 +1,19 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { useVideoStore } from '@/store/video.store';
 import type { Platform, Video } from '@/types/video';
 
-type SelectedTab = 'selected' | 'posting';
+type SelectedTab = 'selected' | 'upload' | 'posting';
+
+interface UploadDraft {
+    id: string;
+    file: File;
+    url: string;
+    title: string;
+    platform: Platform;
+}
 
 interface PreparePostingResponse {
     success?: boolean;
@@ -38,21 +46,137 @@ function EmptyState({ tab }: { tab: SelectedTab }) {
     const message =
         tab === 'selected'
             ? 'No videos in the temporary selection.'
-            : 'No videos saved for posting yet.';
+            : tab === 'upload'
+                ? 'No upload files selected.'
+                : 'No videos saved for posting yet.';
 
     return (
         <div className="flex min-h-80 items-center justify-center rounded-lg border border-dashed border-gray-200 bg-white">
             <div className="px-6 text-center">
                 <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-gray-50 text-sm font-semibold text-gray-400">
-                    {tab === 'selected' ? 'Select' : 'Post'}
+                    {tab === 'selected' ? 'Select' : tab === 'upload' ? 'Upload' : 'Post'}
                 </div>
                 <h2 className="text-sm font-semibold text-gray-900">{message}</h2>
                 <p className="mt-1 text-sm text-gray-500">
                     {tab === 'selected'
                         ? 'Use + Select on Discover videos to add them here.'
-                        : 'Tick videos in Selected, then save them to this list.'}
+                        : tab === 'upload'
+                            ? 'Choose video files to add them straight into Ready to Post.'
+                            : 'Tick videos in Selected, then save them to this list.'}
                 </p>
             </div>
+        </div>
+    );
+}
+
+interface UploadPostingResponse {
+    success?: boolean;
+    uploadedVideos?: Video[];
+    error?: string;
+}
+
+function formatBytes(bytes: number) {
+    if (bytes < 1024 * 1024) {
+        return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    }
+
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function UploadPanel({
+    drafts,
+    onPickFiles,
+    onUpdateDraft,
+    onRemoveDraft,
+    onAddToReady,
+    isUploading,
+}: {
+    drafts: UploadDraft[];
+    onPickFiles: (files: FileList | null) => void;
+    onUpdateDraft: (id: string, patch: Partial<Pick<UploadDraft, 'title' | 'platform'>>) => void;
+    onRemoveDraft: (id: string) => void;
+    onAddToReady: () => void;
+    isUploading: boolean;
+}) {
+    return (
+        <div className="grid gap-4">
+            <label className="flex min-h-48 cursor-pointer items-center justify-center rounded-lg border border-dashed border-gray-200 bg-white p-6 text-center hover:border-blue-300 hover:bg-blue-50/40">
+                <input
+                    type="file"
+                    accept="video/*"
+                    multiple
+                    onChange={(event) => onPickFiles(event.target.files)}
+                    className="sr-only"
+                />
+                <div>
+                    <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-600">
+                        MP4
+                    </div>
+                    <p className="text-sm font-semibold text-gray-950">Upload video straight to Ready to Post</p>
+                    <p className="mt-1 text-sm text-gray-500">Select one or more video files from this computer.</p>
+                </div>
+            </label>
+
+            {drafts.length > 0 && (
+                <>
+                    <div className="grid gap-3">
+                        {drafts.map((draft) => (
+                            <div key={draft.id} className="grid gap-3 rounded-lg border border-gray-100 bg-white p-3 shadow-sm md:grid-cols-[120px_minmax(0,1fr)_140px_auto]">
+                                <video
+                                    src={draft.url}
+                                    className="aspect-video w-full rounded-md bg-gray-100 object-cover"
+                                    controls
+                                    muted
+                                />
+                                <div className="min-w-0">
+                                    <label className="text-xs font-semibold uppercase text-gray-400">Title</label>
+                                    <input
+                                        value={draft.title}
+                                        onChange={(event) => onUpdateDraft(draft.id, { title: event.target.value })}
+                                        className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-900 outline-none focus:border-blue-500"
+                                    />
+                                    <p className="mt-2 truncate text-xs text-gray-500">
+                                        {draft.file.name} • {formatBytes(draft.file.size)}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold uppercase text-gray-400">Platform</label>
+                                    <select
+                                        value={draft.platform}
+                                        onChange={(event) =>
+                                            onUpdateDraft(draft.id, { platform: event.target.value as Platform })
+                                        }
+                                        className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-900 outline-none focus:border-blue-500"
+                                    >
+                                        <option value="tiktok">TikTok</option>
+                                        <option value="youtube">YouTube</option>
+                                        <option value="facebook">Facebook</option>
+                                        <option value="instagram">Instagram</option>
+                                    </select>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => onRemoveDraft(draft.id)}
+                                    className="h-9 rounded-md bg-gray-100 px-3 text-xs font-semibold text-gray-700 hover:bg-red-50 hover:text-red-700"
+                                >
+                                    Remove
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="flex justify-end">
+                        <button
+                            type="button"
+                            onClick={onAddToReady}
+                            disabled={isUploading}
+                            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+                        >
+                            {isUploading ? 'Uploading' : `Add ${drafts.length} to Ready to Post`}
+                        </button>
+                    </div>
+                </>
+            )}
         </div>
     );
 }
@@ -171,14 +295,29 @@ export default function SelectedPage() {
     const [checkedIds, setCheckedIds] = useState<string[]>([]);
     const [message, setMessage] = useState<string | null>(null);
     const [isPreparing, setIsPreparing] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadDrafts, setUploadDrafts] = useState<UploadDraft[]>([]);
+    const uploadDraftsRef = useRef<UploadDraft[]>([]);
 
     const unsavedSelectedVideos = useMemo(
         () => selectedVideos.filter((video) => !isVideoPosting(video.id)),
         [isVideoPosting, selectedVideos],
     );
     const activeVideos = activeTab === 'selected' ? selectedVideos : postingVideos;
+    const activeItemCount =
+        activeTab === 'upload' ? uploadDrafts.length : activeVideos.length;
     const checkedSet = new Set(checkedIds);
     const canSave = checkedIds.length > 0;
+
+    useEffect(() => {
+        uploadDraftsRef.current = uploadDrafts;
+    }, [uploadDrafts]);
+
+    useEffect(() => {
+        return () => {
+            uploadDraftsRef.current.forEach((draft) => URL.revokeObjectURL(draft.url));
+        };
+    }, []);
 
     const toggleChecked = (id: string) => {
         if (isVideoPosting(id)) {
@@ -262,8 +401,101 @@ export default function SelectedPage() {
             return;
         }
 
+        if (activeTab === 'upload') {
+            uploadDrafts.forEach((draft) => URL.revokeObjectURL(draft.url));
+            setUploadDrafts([]);
+            setMessage('Upload drafts cleared.');
+            return;
+        }
+
         clearPosting();
         setMessage('Ready to Post list cleared.');
+    };
+
+    const pickUploadFiles = (files: FileList | null) => {
+        const videoFiles = Array.from(files || []).filter((file) => file.type.startsWith('video/'));
+
+        if (videoFiles.length === 0) {
+            setMessage('Choose at least one video file.');
+            return;
+        }
+
+        const drafts = videoFiles.map((file) => {
+            const baseTitle = file.name.replace(/\.[^.]+$/, '').trim() || 'Uploaded video';
+
+            return {
+                id: `upload-${Date.now()}-${crypto.randomUUID()}`,
+                file,
+                url: URL.createObjectURL(file),
+                title: baseTitle,
+                platform: 'tiktok' as Platform,
+            };
+        });
+
+        setUploadDrafts((current) => [...current, ...drafts]);
+        setMessage(`${drafts.length} upload draft(s) ready to add.`);
+    };
+
+    const updateUploadDraft = (
+        id: string,
+        patch: Partial<Pick<UploadDraft, 'title' | 'platform'>>,
+    ) => {
+        setUploadDrafts((current) =>
+            current.map((draft) => (draft.id === id ? { ...draft, ...patch } : draft)),
+        );
+    };
+
+    const removeUploadDraft = (id: string) => {
+        setUploadDrafts((current) => {
+            const draft = current.find((item) => item.id === id);
+            if (draft) URL.revokeObjectURL(draft.url);
+
+            return current.filter((item) => item.id !== id);
+        });
+    };
+
+    const addUploadsToReady = async () => {
+        if (uploadDrafts.length === 0) {
+            setMessage('Choose at least one video file before adding.');
+            return;
+        }
+
+        setIsUploading(true);
+        setMessage(`Uploading ${uploadDrafts.length} video(s)...`);
+
+        try {
+            const formData = new FormData();
+            uploadDrafts.forEach((draft) => formData.append('files', draft.file));
+            formData.append(
+                'metadata',
+                JSON.stringify(
+                    uploadDrafts.map((draft) => ({
+                        title: draft.title,
+                        platform: draft.platform,
+                    })),
+                ),
+            );
+
+            const response = await fetch('/api/posting/upload', {
+                method: 'POST',
+                body: formData,
+            });
+            const result = (await response.json()) as UploadPostingResponse;
+
+            if (!response.ok || result.error || !result.uploadedVideos?.length) {
+                throw new Error(result.error || 'Failed to upload videos');
+            }
+
+            addPostingVideos(result.uploadedVideos);
+            uploadDrafts.forEach((draft) => URL.revokeObjectURL(draft.url));
+            setUploadDrafts([]);
+            setActiveTab('posting');
+            setMessage(`Uploaded and added ${result.uploadedVideos.length} video(s) to Ready to Post.`);
+        } catch (error) {
+            setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to upload videos'}`);
+        } finally {
+            setIsUploading(false);
+        }
     };
 
     return (
@@ -279,10 +511,10 @@ export default function SelectedPage() {
 
                     <button
                         onClick={clearCurrentTab}
-                        disabled={activeVideos.length === 0}
+                        disabled={activeItemCount === 0}
                         className="rounded-md bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                        Clear {activeTab === 'selected' ? 'Selected' : 'Ready'}
+                        Clear {activeTab === 'selected' ? 'Selected' : activeTab === 'upload' ? 'Upload' : 'Ready'}
                     </button>
                 </div>
 
@@ -295,6 +527,15 @@ export default function SelectedPage() {
                             }`}
                     >
                         Selected ({selectedVideos.length})
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('upload')}
+                        className={`rounded-md px-3 py-2 text-sm font-semibold ${activeTab === 'upload'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            }`}
+                    >
+                        Upload ({uploadDrafts.length})
                     </button>
                     <button
                         onClick={() => setActiveTab('posting')}
@@ -330,7 +571,16 @@ export default function SelectedPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-5 pb-28">
-                {activeVideos.length === 0 ? (
+                {activeTab === 'upload' ? (
+                    <UploadPanel
+                        drafts={uploadDrafts}
+                        onPickFiles={pickUploadFiles}
+                        onUpdateDraft={updateUploadDraft}
+                        onRemoveDraft={removeUploadDraft}
+                        onAddToReady={addUploadsToReady}
+                        isUploading={isUploading}
+                    />
+                ) : activeVideos.length === 0 ? (
                     <EmptyState tab={activeTab} />
                 ) : (
                     <div className="grid gap-3">
