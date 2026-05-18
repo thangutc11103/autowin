@@ -37,7 +37,7 @@ function getPool(): Pool {
     pool = new Pool({
       connectionString,
       ssl: shouldUseSsl(connectionString)
-        ? { rejectUnauthorized: false }
+        ? { rejectUnauthorized: true }
         : undefined,
       max: 5,
     });

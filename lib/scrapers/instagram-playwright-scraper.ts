@@ -76,7 +76,7 @@ export class InstagramPlaywrightScraper {
           domain: ".instagram.com",
           path: "/",
           secure: true,
-          httpOnly: false,
+          httpOnly: true,
           sameSite: "Lax" as const,
         };
       })
@@ -196,7 +196,11 @@ export class InstagramPlaywrightScraper {
     }
 
     const trimmed = rawUrl.trim();
-    if (!trimmed || trimmed.startsWith("data:") || trimmed.startsWith("blob:")) {
+    if (
+      !trimmed ||
+      trimmed.startsWith("data:") ||
+      trimmed.startsWith("blob:")
+    ) {
       return null;
     }
 
@@ -243,8 +247,11 @@ export class InstagramPlaywrightScraper {
   private getMediaScore(response: InstagramMediaResponse): number {
     const bitrateMatch = response.efg.match(/"bitrate":(\d+)/);
     const bitrate = bitrateMatch ? Number(bitrateMatch[1]) : 0;
-    const resolutionScore =
-      response.efg.includes("720") ? 3 : response.efg.includes("540") ? 2 : 1;
+    const resolutionScore = response.efg.includes("720")
+      ? 3
+      : response.efg.includes("540")
+        ? 2
+        : 1;
 
     return resolutionScore * 1_000_000_000 + bitrate + response.contentLength;
   }
@@ -277,7 +284,9 @@ export class InstagramPlaywrightScraper {
 
   private async dismissDialogs(page: Page): Promise<void> {
     await page
-      .getByRole("button", { name: /allow all|decline optional|not now|later/i })
+      .getByRole("button", {
+        name: /allow all|decline optional|not now|later/i,
+      })
       .first()
       .click({ timeout: 2500 })
       .catch(() => undefined);
@@ -539,7 +548,11 @@ export class InstagramPlaywrightScraper {
         requestedLimit,
       );
 
-      for (let attempt = 0; attempt < 6 && candidates.length < requestedLimit; attempt += 1) {
+      for (
+        let attempt = 0;
+        attempt < 6 && candidates.length < requestedLimit;
+        attempt += 1
+      ) {
         await page.mouse.wheel(0, 1400);
         await page.waitForTimeout(1200);
         candidates = await this.extractReelCandidates(
@@ -570,7 +583,11 @@ export class InstagramPlaywrightScraper {
             requestedLimit,
           );
 
-          for (let attempt = 0; attempt < 6 && candidates.length < requestedLimit; attempt += 1) {
+          for (
+            let attempt = 0;
+            attempt < 6 && candidates.length < requestedLimit;
+            attempt += 1
+          ) {
             await page.mouse.wheel(0, 1400);
             await page.waitForTimeout(1200);
             candidates = await this.extractReelCandidates(

@@ -6,6 +6,9 @@ import type {
   JobType,
 } from "@/types/job";
 import type { NextRequest } from "next/server";
+import { createRateLimiter } from "@/lib/rate-limit";
+
+const rateLimiter = createRateLimiter(30); // 30 requests per minute
 
 function normalizeInputValue(value: string): string {
   const trimmed = value.trim();
@@ -145,6 +148,12 @@ function buildTargetUrl(
 }
 
 export async function POST(request: NextRequest) {
+  // Rate limiting
+  const rateLimitResponse = await rateLimiter(request);
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   try {
     const body = (await request.json()) as DecomposeFilterRequest;
 

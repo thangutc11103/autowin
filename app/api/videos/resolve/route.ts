@@ -4,14 +4,23 @@ import {
 } from "@/lib/database/scrape-storage";
 import { resolveMediaWithYtDlp } from "@/lib/media/yt-dlp-resolver";
 import type { NextRequest } from "next/server";
+import { createRateLimiter } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
+
+const rateLimiter = createRateLimiter(60); // 60 requests per minute
 
 interface ResolveVideoRequest {
   id?: string;
 }
 
 export async function POST(request: NextRequest) {
+  // Rate limiting
+  const rateLimitResponse = await rateLimiter(request);
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   try {
     const body = (await request.json().catch(() => ({}))) as ResolveVideoRequest;
     const id = typeof body.id === "string" ? body.id.trim() : "";

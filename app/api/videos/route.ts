@@ -8,8 +8,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Pool } from "pg";
 import type { Platform, Video } from "@/types/video";
+import { createRateLimiter } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
+
+const rateLimiter = createRateLimiter(60); // 60 requests per minute
 
 const VALID_PLATFORMS: Platform[] = [
   "tiktok",
@@ -74,6 +77,12 @@ function getStringPayloadValue(
 }
 
 export async function GET(request: NextRequest) {
+  // Rate limiting
+  const rateLimitResponse = await rateLimiter(request);
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   try {
     const { searchParams } = new URL(request.url);
 

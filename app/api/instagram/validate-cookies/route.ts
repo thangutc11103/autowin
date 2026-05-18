@@ -1,7 +1,10 @@
 import { chromium, type BrowserContext } from "playwright";
 import type { NextRequest } from "next/server";
+import { createRateLimiter } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
+
+const rateLimiter = createRateLimiter(10); // 10 requests per minute (sensitive endpoint)
 
 interface ValidateCookiesRequest {
   cookies?: string;
@@ -26,7 +29,7 @@ function parseInstagramCookies(cookieHeader: string) {
         domain: ".instagram.com",
         path: "/",
         secure: true,
-        httpOnly: false,
+        httpOnly: true,
         sameSite: "Lax" as const,
       };
     })
@@ -47,20 +50,31 @@ async function addInstagramCookies(
 }
 
 function normalizeTag(value: string | undefined): string {
-  return (value || "trending")
-    .trim()
-    .replace(/^#/, "")
-    .replace(/^@/, "")
-    .replace(/^\/+/, "")
-    .replace(/\/+$/, "") || "trending";
+  return (
+    (value || "trending")
+      .trim()
+      .replace(/^#/, "")
+      .replace(/^@/, "")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "") || "trending"
+  );
 }
 
 export async function POST(request: NextRequest) {
+  // Rate limiting
+  const rateLimitResponse = await rateLimiter(request);
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   let browser;
 
   try {
-    const body = (await request.json().catch(() => ({}))) as ValidateCookiesRequest;
-    const cookieHeader = typeof body.cookies === "string" ? body.cookies.trim() : "";
+    const body = (await request
+      .json()
+      .catch(() => ({}))) as ValidateCookiesRequest;
+    const cookieHeader =
+      typeof body.cookies === "string" ? body.cookies.trim() : "";
 
     if (!cookieHeader) {
       return Response.json(
@@ -95,10 +109,13 @@ export async function POST(request: NextRequest) {
     });
 
     const tag = normalizeTag(body.tag);
-    await page.goto(`https://www.instagram.com/explore/tags/${encodeURIComponent(tag)}/`, {
-      waitUntil: "domcontentloaded",
-      timeout: 45000,
-    });
+    await page.goto(
+      `https://www.instagram.com/explore/tags/${encodeURIComponent(tag)}/`,
+      {
+        waitUntil: "domcontentloaded",
+        timeout: 45000,
+      },
+    );
     await page.waitForTimeout(2500);
 
     const validation = await page.evaluate(() => {
