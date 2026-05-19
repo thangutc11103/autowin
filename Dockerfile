@@ -9,7 +9,8 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci
+# --force avoids npm failing on Windows-generated optional platform metadata in package-lock.json.
+RUN npm ci --force
 
 # Copy source
 COPY . .
