@@ -434,7 +434,7 @@ export default function SelectedPage() {
 
             if (notReadyVideos.length > 0) {
                 throw new Error(
-                    'Prepared media is not ready for production. Check R2 env on the web service and prepare again.',
+                    'Prepared media is local-only, so it is blocked in production. Configure R2 on the web service (R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, plus R2_ENDPOINT or R2_ACCOUNT_ID) and prepare again.',
                 );
             }
 
