@@ -5,6 +5,18 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Native build dependencies for packages like canvas on Alpine Linux.
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    cairo-dev \
+    pango-dev \
+    jpeg-dev \
+    giflib-dev \
+    librsvg-dev \
+    pixman-dev
+
 # Copy dependency files
 COPY package*.json ./
 
@@ -23,8 +35,15 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+# Install dumb-init and runtime libraries needed by native modules.
+RUN apk add --no-cache \
+    dumb-init \
+    cairo \
+    pango \
+    jpeg \
+    giflib \
+    librsvg \
+    pixman
 
 # Copy from builder
 COPY --from=builder /app/node_modules ./node_modules
