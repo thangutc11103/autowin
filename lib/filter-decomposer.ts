@@ -7,10 +7,12 @@
  */
 
 import type { CrawlJobData, JobType } from "@/types/job";
+import { DEFAULT_TENANT_ID, normalizeTenantId } from "@/lib/tenant-context";
 
 type LegacyFilterType = "hashtag" | "user" | "search";
 
 export interface DecomposeFilterRequest {
+  tenantId?: string;
   platform: "tiktok" | "douyin" | "youtube" | "facebook" | "instagram";
   filters: Array<{
     type: LegacyFilterType;
@@ -62,6 +64,7 @@ export function decomposeFilters(
 ): CrawlJobData[] {
   const jobs: CrawlJobData[] = [];
   const batchId = `batch-${crypto.randomUUID()}`;
+  const tenantId = normalizeTenantId(request.tenantId || DEFAULT_TENANT_ID);
 
   for (const [index, filter] of request.filters.entries()) {
     const targetUrl = buildTargetUrl(
@@ -73,6 +76,7 @@ export function decomposeFilters(
 
     const job: CrawlJobData = {
       id,
+      tenantId,
       batchId,
       platform: request.platform,
       type: mapFilterTypeToJobType(filter.type),

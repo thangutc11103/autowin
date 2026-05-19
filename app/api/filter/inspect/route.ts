@@ -2,6 +2,10 @@ import { getCrawlQueue } from "@/lib/queue";
 import type { CrawlJobData } from "@/types/job";
 import type { Job } from "bullmq";
 import type { NextRequest } from "next/server";
+import {
+  DEFAULT_TENANT_ID,
+  getTenantIdFromRequest,
+} from "@/lib/tenant-context";
 
 interface InspectJobData {
   id: string;
@@ -25,9 +29,14 @@ function sanitizeJobData(data: CrawlJobData | undefined) {
   return safeData;
 }
 
+function getJobTenantId(job: Job<CrawlJobData>) {
+  return job.data.tenantId || DEFAULT_TENANT_ID;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
+    const tenantId = getTenantIdFromRequest(request);
     const batchId = searchParams.get("batchId");
     const platform = searchParams.get("platform");
 
@@ -74,9 +83,9 @@ export async function GET(request: NextRequest) {
     console.log(`[INSPECT] Total jobs in queue: ${allJobs.length}`);
 
     // Filter jobs nếu có batchId hoặc platform
-    let filteredJobs = allJobs;
+    let filteredJobs = allJobs.filter((job) => getJobTenantId(job) === tenantId);
     if (batchId) {
-      filteredJobs = allJobs.filter(
+      filteredJobs = filteredJobs.filter(
         (job) => job.data.batchId === batchId,
       );
       console.log(

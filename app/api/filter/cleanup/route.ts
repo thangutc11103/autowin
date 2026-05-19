@@ -2,6 +2,10 @@ import { clearScrapeHistory } from "@/lib/database/scrape-storage";
 import { getCrawlQueue } from "@/lib/queue";
 import type { Platform } from "@/types/video";
 import type { NextRequest } from "next/server";
+import {
+  DEFAULT_TENANT_ID,
+  getTenantIdFromRequest,
+} from "@/lib/tenant-context";
 
 const VALID_RETENTION_DAYS = new Set([7, 30]);
 const VALID_PLATFORMS: Platform[] = [
@@ -24,7 +28,7 @@ function isValidPlatform(value: unknown): value is Platform {
   );
 }
 
-async function cleanupQueue() {
+async function cleanupQueue(tenantId: string) {
   const queue = await getCrawlQueue();
 
   const completedJobs = await queue.getJobs(["completed"], 0, -1);
@@ -33,7 +37,14 @@ async function cleanupQueue() {
   let cleanedCount = 0;
   let errorCount = 0;
 
+  const belongsToTenant = (job: { data: { tenantId?: string } }) =>
+    (job.data.tenantId || DEFAULT_TENANT_ID) === tenantId;
+
   for (const job of [...completedJobs, ...failedJobs]) {
+    if (!belongsToTenant(job)) {
+      continue;
+    }
+
     try {
       await job.remove();
       cleanedCount++;
@@ -46,13 +57,14 @@ async function cleanupQueue() {
   return {
     cleanedCount,
     errorCount,
-    completedRemoved: completedJobs.length,
-    failedRemoved: failedJobs.length,
+    completedRemoved: completedJobs.filter(belongsToTenant).length,
+    failedRemoved: failedJobs.filter(belongsToTenant).length,
   };
 }
 
 export async function POST(request: NextRequest) {
   try {
+    const tenantId = getTenantIdFromRequest(request);
     const body = (await request.json().catch(() => ({}))) as CleanupRequest;
     const mode = body.mode || "queue";
 
@@ -64,7 +76,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (mode === "queue") {
-      const queueResult = await cleanupQueue();
+      const queueResult = await cleanupQueue(tenantId);
 
       return Response.json({
         success: true,
@@ -76,6 +88,7 @@ export async function POST(request: NextRequest) {
 
     if (mode === "clear-history") {
       const historyResult = await clearScrapeHistory({
+        tenantId,
         platform: body.platform,
       });
 
@@ -100,6 +113,7 @@ export async function POST(request: NextRequest) {
       }
 
       const historyResult = await clearScrapeHistory({
+        tenantId,
         platform: body.platform,
         olderThanDays: body.retentionDays,
       });

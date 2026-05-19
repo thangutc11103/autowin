@@ -3,6 +3,7 @@ import { getRedis } from "./redis";
 import type { CrawlJobData } from "@/types/job";
 
 export interface PublishJobData {
+  tenantId: string;
   postId: string;
   targetId: string;
 }
@@ -87,6 +88,7 @@ export function getPublishQueue(): Queue<PublishJobData> {
 }
 
 export async function addPublishJob(params: {
+  tenantId: string;
   postId: string;
   targetId: string;
   delayMs?: number;
@@ -94,9 +96,10 @@ export async function addPublishJob(params: {
   const queue = getPublishQueue();
   const job = await queue.add(
     "publish",
-    {
-      postId: params.postId,
-      targetId: params.targetId,
+      {
+        tenantId: params.tenantId,
+        postId: params.postId,
+        targetId: params.targetId,
     },
     {
       jobId: `publish-${params.targetId}`,

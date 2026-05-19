@@ -9,6 +9,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { Pool } from "pg";
 import type { Platform, Video } from "@/types/video";
 import { createRateLimiter } from "@/lib/rate-limit";
+import { ensureScrapeStorage } from "@/lib/database/scrape-storage";
+import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
 export const runtime = "nodejs";
 
@@ -85,6 +87,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const { searchParams } = new URL(request.url);
+    const tenantId = getTenantIdFromRequest(request);
+    await ensureScrapeStorage();
 
     const batchId = searchParams.get("batchId");
     const platform = searchParams.get("platform");
@@ -99,8 +103,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const conditions: string[] = [];
-    const values: Array<string | number> = [];
+    const conditions: string[] = ["tenant_id = $1"];
+    const values: Array<string | number> = [tenantId];
 
     if (batchId) {
       values.push(batchId);

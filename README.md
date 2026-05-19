@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Find App
 
-## Getting Started
+Find App is a Next.js dashboard for discovering short-form videos, preparing selected clips, connecting OAuth accounts, and queueing publish jobs.
 
-First, run the development server:
+## Core Services
+
+- `app/` - Next.js app routes, dashboard pages, and API handlers.
+- `lib/scrapers/` - TikTok, Instagram, Facebook, and YouTube discovery adapters.
+- `lib/database/` - PostgreSQL persistence for scraped videos, OAuth accounts, and posting queues.
+- `lib/publish/` - Platform publishing adapters.
+- `scripts/worker.ts` - BullMQ worker for crawl and publish jobs.
+
+## Local Development
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Run the worker in a second terminal:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run worker
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Required environment values are listed in `.env.local.example`.
 
-## Learn More
+## Documentation
 
-To learn more about Next.js, take a look at the following resources:
+- [Local development](docs/local-development.md)
+- [Deployment](docs/deployment.md)
+- [Architecture](docs/architecture.md)
+- [Redis](docs/redis.md)
+- [Reference](docs/reference.md)
+- [Security](docs/security.md)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Production Notes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` before deploying. In production, protected pages and API routes are blocked if these values are missing.
 
-## Deploy on Vercel
+The app is tenant-aware. Until full user login and a workspace switcher are added, requests use `DEFAULT_TENANT_ID=default` unless a tenant is supplied with `tenantId`, `x-tenant-id`, or the `tenant_id` cookie.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Generated media and debug artifacts are intentionally ignored:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `debug/`
+- `.media-tmp/`
+- `public/prepared-videos/`
+- `public/uploads/ready/`

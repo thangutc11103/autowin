@@ -1,6 +1,8 @@
 import { randomUUID } from "crypto";
 import { Pool, type PoolClient } from "pg";
 import type { Platform, Video } from "@/types/video";
+import { ensureTenant } from "@/lib/database/tenant-storage";
+import { normalizeTenantId } from "@/lib/tenant-context";
 
 export type ScheduledPostStatus =
   | "draft"
@@ -25,6 +27,7 @@ export interface QueuePostTargetInput {
 }
 
 export interface QueuePostInput {
+  tenantId?: string;
   video: Video;
   caption: string;
   publishWindow: "now" | "schedule";
@@ -34,6 +37,7 @@ export interface QueuePostInput {
 
 export interface ScheduledPostRecord {
   id: string;
+  tenantId?: string;
   videoId: string;
   videoTitle: string;
   videoUrl: string;
@@ -52,7 +56,20 @@ export interface ScheduledPostRecord {
     status: PostTargetStatus;
     lastError?: string | null;
     publishedAt?: string | null;
+    platformPostId?: string | null;
   }>;
+}
+
+export interface PublishTargetContext {
+  tenantId: string;
+  postId: string;
+  targetId: string;
+  videoTitle: string;
+  videoUrl: string;
+  videoPayload?: Video;
+  caption: string;
+  accountKey: string;
+  platform: Exclude<Platform, "douyin">;
 }
 
 let pool: Pool | null = null;
@@ -119,6 +136,7 @@ async function ensurePostingStorage(): Promise<void> {
       await client.query(`
         CREATE TABLE IF NOT EXISTS scheduled_posts (
           id TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL DEFAULT 'default',
           video_id TEXT NOT NULL,
           video_title TEXT NOT NULL,
           video_url TEXT NOT NULL,
@@ -135,19 +153,32 @@ async function ensurePostingStorage(): Promise<void> {
       `);
 
       await client.query(`
+        ALTER TABLE scheduled_posts
+        ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default';
+      `);
+
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_scheduled_posts_status_scheduled_at
         ON scheduled_posts (status, scheduled_at);
       `);
 
       await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_scheduled_posts_tenant_status
+        ON scheduled_posts (tenant_id, status, scheduled_at);
+      `);
+
+      await client.query(`
         CREATE TABLE IF NOT EXISTS post_targets (
           id TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL DEFAULT 'default',
           post_id TEXT NOT NULL REFERENCES scheduled_posts(id) ON DELETE CASCADE,
           account_key TEXT NOT NULL,
           platform TEXT NOT NULL,
           account_label TEXT,
           status TEXT NOT NULL,
           last_error TEXT,
+          platform_post_id TEXT,
+          platform_response JSONB,
           published_at TIMESTAMPTZ,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -155,8 +186,28 @@ async function ensurePostingStorage(): Promise<void> {
       `);
 
       await client.query(`
+        ALTER TABLE post_targets
+        ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default';
+      `);
+
+      await client.query(`
+        ALTER TABLE post_targets
+        ADD COLUMN IF NOT EXISTS platform_post_id TEXT;
+      `);
+
+      await client.query(`
+        ALTER TABLE post_targets
+        ADD COLUMN IF NOT EXISTS platform_response JSONB;
+      `);
+
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_post_targets_post_id
         ON post_targets (post_id);
+      `);
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_post_targets_tenant_post_id
+        ON post_targets (tenant_id, post_id);
       `);
     }).catch((error) => {
       schemaPromise = null;
@@ -177,6 +228,7 @@ function mapPostRows(rows: Array<Record<string, unknown>>): ScheduledPostRecord[
     if (!post) {
       post = {
         id: postId,
+        tenantId: row.tenant_id ? String(row.tenant_id) : undefined,
         videoId: String(row.video_id),
         videoTitle: String(row.video_title),
         videoUrl: String(row.video_url),
@@ -202,6 +254,7 @@ function mapPostRows(rows: Array<Record<string, unknown>>): ScheduledPostRecord[
         accountLabel: row.account_label ? String(row.account_label) : null,
         status: row.target_status as PostTargetStatus,
         lastError: row.last_error ? String(row.last_error) : null,
+        platformPostId: row.platform_post_id ? String(row.platform_post_id) : null,
         publishedAt: row.published_at
           ? new Date(row.published_at as string | Date).toISOString()
           : null,
@@ -215,6 +268,8 @@ function mapPostRows(rows: Array<Record<string, unknown>>): ScheduledPostRecord[
 export async function createQueuedPost(
   input: QueuePostInput,
 ): Promise<ScheduledPostRecord> {
+  const tenantId = normalizeTenantId(input.tenantId);
+  await ensureTenant(tenantId);
   await ensurePostingStorage();
 
   const postId = randomUUID();
@@ -232,6 +287,7 @@ export async function createQueuedPost(
         `
           INSERT INTO scheduled_posts (
             id,
+            tenant_id,
             video_id,
             video_title,
             video_url,
@@ -243,10 +299,11 @@ export async function createQueuedPost(
             queued_at,
             video_payload
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::JSONB)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::JSONB)
         `,
         [
           postId,
+          tenantId,
           input.video.id,
           input.video.title,
           input.video.preparedLocalUrl || input.video.url,
@@ -265,16 +322,18 @@ export async function createQueuedPost(
           `
             INSERT INTO post_targets (
               id,
+              tenant_id,
               post_id,
               account_key,
               platform,
               account_label,
               status
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
           `,
           [
             randomUUID(),
+            tenantId,
             postId,
             target.accountKey,
             target.platform,
@@ -291,7 +350,7 @@ export async function createQueuedPost(
     }
   });
 
-  const [post] = await listScheduledPosts({ limit: 1, postId });
+  const [post] = await listScheduledPosts({ tenantId, limit: 1, postId });
   if (!post) {
     throw new Error("Queued post was not found after creation");
   }
@@ -300,14 +359,16 @@ export async function createQueuedPost(
 }
 
 export async function listScheduledPosts(params?: {
+  tenantId?: string;
   limit?: number;
   postId?: string;
 }): Promise<ScheduledPostRecord[]> {
+  const tenantId = normalizeTenantId(params?.tenantId);
   await ensurePostingStorage();
 
   return withClient(async (client) => {
-    const values: Array<string | number> = [];
-    const conditions: string[] = [];
+    const values: Array<string | number> = [tenantId];
+    const conditions: string[] = ["scheduled_posts.tenant_id = $1"];
 
     if (params?.postId) {
       values.push(params.postId);
@@ -323,6 +384,7 @@ export async function listScheduledPosts(params?: {
       `
         SELECT
           scheduled_posts.id,
+          scheduled_posts.tenant_id,
           scheduled_posts.video_id,
           scheduled_posts.video_title,
           scheduled_posts.video_url,
@@ -339,9 +401,12 @@ export async function listScheduledPosts(params?: {
           post_targets.account_label,
           post_targets.status AS target_status,
           post_targets.last_error,
+          post_targets.platform_post_id,
           post_targets.published_at
         FROM scheduled_posts
-        LEFT JOIN post_targets ON post_targets.post_id = scheduled_posts.id
+        LEFT JOIN post_targets
+          ON post_targets.post_id = scheduled_posts.id
+          AND post_targets.tenant_id = scheduled_posts.tenant_id
         ${whereClause}
         ORDER BY scheduled_posts.created_at DESC, post_targets.created_at ASC
         LIMIT $${limitParam}
@@ -354,9 +419,11 @@ export async function listScheduledPosts(params?: {
 }
 
 export async function markTargetPublishing(params: {
+  tenantId?: string;
   postId: string;
   targetId: string;
 }): Promise<void> {
+  const tenantId = normalizeTenantId(params.tenantId);
   await ensurePostingStorage();
 
   await withClient((client) =>
@@ -364,19 +431,23 @@ export async function markTargetPublishing(params: {
       `
         UPDATE post_targets
         SET status = 'publishing', updated_at = NOW()
-        WHERE id = $1 AND post_id = $2
+        WHERE id = $1 AND post_id = $2 AND tenant_id = $3
       `,
-      [params.targetId, params.postId],
+      [params.targetId, params.postId, tenantId],
     ),
   );
 
-  await syncPostStatus(params.postId);
+  await syncPostStatus(params.postId, tenantId);
 }
 
 export async function markTargetPublished(params: {
+  tenantId?: string;
   postId: string;
   targetId: string;
+  platformPostId?: string;
+  platformResponse?: unknown;
 }): Promise<void> {
+  const tenantId = normalizeTenantId(params.tenantId);
   await ensurePostingStorage();
 
   await withClient((client) =>
@@ -386,22 +457,81 @@ export async function markTargetPublished(params: {
         SET
           status = 'published',
           published_at = NOW(),
+          platform_post_id = $3,
+          platform_response = COALESCE($4::JSONB, platform_response),
           last_error = NULL,
           updated_at = NOW()
-        WHERE id = $1 AND post_id = $2
+        WHERE id = $1 AND post_id = $2 AND tenant_id = $5
       `,
-      [params.targetId, params.postId],
+      [
+        params.targetId,
+        params.postId,
+        params.platformPostId ?? null,
+        params.platformResponse ? JSON.stringify(params.platformResponse) : null,
+        tenantId,
+      ],
     ),
   );
 
-  await syncPostStatus(params.postId);
+  await syncPostStatus(params.postId, tenantId);
+}
+
+export async function getPublishTargetContext(params: {
+  tenantId?: string;
+  postId: string;
+  targetId: string;
+}): Promise<PublishTargetContext | null> {
+  const tenantId = normalizeTenantId(params.tenantId);
+  await ensurePostingStorage();
+
+  return withClient(async (client) => {
+    const result = await client.query(
+      `
+        SELECT
+          scheduled_posts.id AS post_id,
+          scheduled_posts.tenant_id,
+          scheduled_posts.video_title,
+          scheduled_posts.video_url,
+          scheduled_posts.video_payload,
+          scheduled_posts.caption,
+          post_targets.id AS target_id,
+          post_targets.account_key,
+          post_targets.platform
+        FROM post_targets
+        INNER JOIN scheduled_posts ON scheduled_posts.id = post_targets.post_id
+        WHERE post_targets.id = $1 AND scheduled_posts.id = $2
+          AND scheduled_posts.tenant_id = $3
+          AND post_targets.tenant_id = $3
+        LIMIT 1
+      `,
+      [params.targetId, params.postId, tenantId],
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      postId: String(row.post_id),
+      tenantId: String(row.tenant_id),
+      targetId: String(row.target_id),
+      videoTitle: String(row.video_title),
+      videoUrl: String(row.video_url),
+      videoPayload: row.video_payload as Video | undefined,
+      caption: String(row.caption),
+      accountKey: String(row.account_key),
+      platform: row.platform as Exclude<Platform, "douyin">,
+    };
+  });
 }
 
 export async function markTargetFailed(params: {
+  tenantId?: string;
   postId: string;
   targetId: string;
   error: string;
+  platformResponse?: unknown;
 }): Promise<void> {
+  const tenantId = normalizeTenantId(params.tenantId);
   await ensurePostingStorage();
 
   await withClient((client) =>
@@ -411,17 +541,25 @@ export async function markTargetFailed(params: {
         SET
           status = 'failed',
           last_error = $3,
+          platform_response = COALESCE($4::JSONB, platform_response),
           updated_at = NOW()
-        WHERE id = $1 AND post_id = $2
+        WHERE id = $1 AND post_id = $2 AND tenant_id = $5
       `,
-      [params.targetId, params.postId, params.error],
+      [
+        params.targetId,
+        params.postId,
+        params.error,
+        params.platformResponse ? JSON.stringify(params.platformResponse) : null,
+        tenantId,
+      ],
     ),
   );
 
-  await syncPostStatus(params.postId);
+  await syncPostStatus(params.postId, tenantId);
 }
 
-export async function syncPostStatus(postId: string): Promise<void> {
+export async function syncPostStatus(postId: string, tenantId?: string): Promise<void> {
+  const scopedTenantId = normalizeTenantId(tenantId);
   await ensurePostingStorage();
 
   await withClient(async (client) => {
@@ -429,10 +567,10 @@ export async function syncPostStatus(postId: string): Promise<void> {
       `
         SELECT status, COUNT(*)::INT AS count
         FROM post_targets
-        WHERE post_id = $1
+        WHERE post_id = $1 AND tenant_id = $2
         GROUP BY status
       `,
-      [postId],
+      [postId, scopedTenantId],
     );
 
     const counts = new Map<string, number>(
@@ -462,9 +600,9 @@ export async function syncPostStatus(postId: string): Promise<void> {
       `
         UPDATE scheduled_posts
         SET status = $2, updated_at = NOW()
-        WHERE id = $1
+        WHERE id = $1 AND tenant_id = $3
       `,
-      [postId, nextStatus],
+      [postId, nextStatus, scopedTenantId],
     );
   });
 }

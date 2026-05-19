@@ -5,6 +5,7 @@ import {
 import { resolveMediaWithYtDlp } from "@/lib/media/yt-dlp-resolver";
 import type { NextRequest } from "next/server";
 import { createRateLimiter } from "@/lib/rate-limit";
+import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
 export const runtime = "nodejs";
 
@@ -25,13 +26,14 @@ export async function POST(request: NextRequest) {
     const body = (await request
       .json()
       .catch(() => ({}))) as ResolveVideoRequest;
+    const tenantId = getTenantIdFromRequest(request);
     const id = typeof body.id === "string" ? body.id.trim() : "";
 
     if (!id) {
       return Response.json({ error: "Video id is required" }, { status: 400 });
     }
 
-    const video = await getScrapedVideoById(id);
+    const video = await getScrapedVideoById(id, tenantId);
 
     if (!video) {
       return Response.json({ error: "Video not found" }, { status: 404 });
@@ -60,6 +62,7 @@ export async function POST(request: NextRequest) {
 
     const updatedVideo = await updateScrapedVideoMediaById({
       id,
+      tenantId,
       title: resolved.title,
       thumbnailUrl: resolved.thumbnailUrl,
       rawPayload: {

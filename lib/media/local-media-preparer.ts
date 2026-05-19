@@ -13,8 +13,15 @@ import type { Video } from "@/types/video";
 const execFileAsync = promisify(execFile);
 const TIKTOK_API_USER_AGENT =
   "TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet";
-const OUTPUT_DIR = path.join(process.cwd(), "public", "prepared-videos");
-const TEMP_DIR = path.join(process.cwd(), ".media-tmp");
+const OUTPUT_DIR = path.join(
+  /* turbopackIgnore: true */ process.cwd(),
+  "public",
+  "prepared-videos",
+);
+const TEMP_DIR = path.join(
+  /* turbopackIgnore: true */ process.cwd(),
+  ".media-tmp",
+);
 
 interface TikTokDownloadResult {
   videoUrls: string[];
@@ -50,14 +57,17 @@ function getFfmpegPath(): string {
   }
 
   const normalizedBundledPath = ffmpegPath.replace(/^[/\\]ROOT[/\\]/, "");
-  const projectLocalPath = path.join(process.cwd(), normalizedBundledPath);
+  const projectLocalPath = path.join(
+    /* turbopackIgnore: true */ process.cwd(),
+    normalizedBundledPath,
+  );
 
   if (existsSync(projectLocalPath)) {
     return projectLocalPath;
   }
 
   const packageLocalPath = path.join(
-    process.cwd(),
+    /* turbopackIgnore: true */ process.cwd(),
     "node_modules",
     "ffmpeg-static",
     process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg",
@@ -518,11 +528,11 @@ export async function prepareVideoForPosting(video: Video): Promise<Video> {
         preparedLocalUrl: localUrl,
         preparedAt: new Date().toISOString(),
         preparedSource: "tiktok-api",
-      rawPayload: {
-        ...video.rawPayload,
-        preparedTikTokVideoId: tiktokMedia.videoId,
-        preparedTikTokProvider: tiktokMedia.provider,
-      },
+        rawPayload: {
+          ...video.rawPayload,
+          preparedTikTokVideoId: tiktokMedia.videoId,
+          preparedTikTokProvider: tiktokMedia.provider,
+        },
       };
     } catch (error) {
       tiktokError = error instanceof Error ? error.message : String(error);

@@ -30,6 +30,9 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/lib ./lib
+COPY --from=builder /app/types ./types
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/public ./public
 
 # Environment
@@ -49,5 +52,5 @@ ENTRYPOINT ["dumb-init", "--"]
 # Default: Start Next.js server
 CMD ["npm", "start"]
 
-# Alternative: Start worker (override with: docker run ... npx ts-node scripts/worker.ts)
-# CMD ["npx", "ts-node", "scripts/worker.ts"]
+# Alternative: Start worker (override with: docker run ... npm run worker)
+# CMD ["npm", "run", "worker"]

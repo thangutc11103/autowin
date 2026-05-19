@@ -29,10 +29,15 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+/debug/
+/.media-tmp/
+/public/prepared-videos/
+/public/uploads/ready/
 
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!.env.local.example
 
 # vercel
 .vercel

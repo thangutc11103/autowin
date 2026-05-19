@@ -9,6 +9,14 @@ export const runtime = "nodejs";
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "ready");
 const PUBLIC_UPLOAD_PATH = "/uploads/ready";
 const MAX_FILE_SIZE = 500 * 1024 * 1024;
+const MAX_FILES_PER_REQUEST = 10;
+const ALLOWED_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".webm"]);
+const ALLOWED_MIME_TYPES = new Set([
+  "video/mp4",
+  "video/quicktime",
+  "video/webm",
+  "video/x-m4v",
+]);
 
 function getExtension(fileName: string) {
   const extension = path.extname(fileName).toLowerCase();
@@ -33,10 +41,29 @@ export async function POST(request: Request) {
   const formData = await request.formData();
   const files = formData.getAll("files").filter((item): item is File => item instanceof File);
   const rawMetadata = formData.get("metadata");
-  const metadata = typeof rawMetadata === "string" ? JSON.parse(rawMetadata) : [];
+  let metadata: unknown[] = [];
+
+  if (typeof rawMetadata === "string" && rawMetadata.trim()) {
+    try {
+      const parsedMetadata = JSON.parse(rawMetadata);
+      metadata = Array.isArray(parsedMetadata) ? parsedMetadata : [];
+    } catch {
+      return NextResponse.json(
+        { error: "Upload metadata must be valid JSON" },
+        { status: 400 },
+      );
+    }
+  }
 
   if (files.length === 0) {
     return NextResponse.json({ error: "No video files uploaded" }, { status: 400 });
+  }
+
+  if (files.length > MAX_FILES_PER_REQUEST) {
+    return NextResponse.json(
+      { error: `Upload at most ${MAX_FILES_PER_REQUEST} files at a time` },
+      { status: 400 },
+    );
   }
 
   await mkdir(UPLOAD_DIR, { recursive: true });
@@ -44,9 +71,14 @@ export async function POST(request: Request) {
   const uploadedVideos: Video[] = [];
 
   for (const [index, file] of files.entries()) {
-    if (!file.type.startsWith("video/")) {
+    const extension = getExtension(file.name);
+
+    if (
+      !ALLOWED_MIME_TYPES.has(file.type) ||
+      !ALLOWED_EXTENSIONS.has(extension)
+    ) {
       return NextResponse.json(
-        { error: `${file.name} is not a video file` },
+        { error: `${file.name} must be an mp4, mov, m4v, or webm video` },
         { status: 400 },
       );
     }
@@ -70,7 +102,7 @@ export async function POST(request: Request) {
         ? itemMetadata.title.trim()
         : sanitizeTitle(file.name);
     const id = `upload-${randomUUID()}`;
-    const storedName = `${id}${getExtension(file.name)}`;
+    const storedName = `${id}${extension}`;
     const diskPath = path.join(UPLOAD_DIR, storedName);
     const publicUrl = `${PUBLIC_UPLOAD_PATH}/${storedName}`;
 

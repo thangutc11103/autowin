@@ -1,7 +1,10 @@
 import { randomUUID } from "crypto";
 import { Pool, type PoolClient } from "pg";
+import { ensureTenant } from "@/lib/database/tenant-storage";
+import { DEFAULT_TENANT_ID, normalizeTenantId } from "@/lib/tenant-context";
 
 export interface OAuthAccount {
+  tenantId?: string;
   platform: "tiktok" | "facebook" | "instagram" | "youtube";
   accessToken: string;
   refreshToken?: string;
@@ -20,6 +23,7 @@ export interface StoredOAuthAccount extends OAuthAccount {
 
 export interface OAuthAccountPage {
   id: string;
+  tenantId?: string;
   accountKey: string;
   platform: "facebook" | "instagram";
   pageId: string;
@@ -33,6 +37,7 @@ export interface OAuthAccountPage {
 
 export interface OAuthDebugEvent {
   id: string;
+  tenantId?: string;
   type: "account_added" | "oauth_error" | "oauth_callback";
   provider?: string;
   platform?: OAuthAccount["platform"];
@@ -43,6 +48,7 @@ export interface OAuthDebugEvent {
 
 export interface OAuthStateRecord {
   state: string;
+  tenantId: string;
   provider: string;
   createdAt: string;
   expiresAt: string;
@@ -112,6 +118,7 @@ async function ensureOAuthStorage(): Promise<void> {
       await client.query(`
         CREATE TABLE IF NOT EXISTS oauth_accounts (
           key TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL DEFAULT 'default',
           platform TEXT NOT NULL,
           access_token TEXT NOT NULL,
           refresh_token TEXT,
@@ -132,13 +139,24 @@ async function ensureOAuthStorage(): Promise<void> {
       `);
 
       await client.query(`
+        ALTER TABLE oauth_accounts
+        ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default';
+      `);
+
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_oauth_accounts_platform
         ON oauth_accounts (platform);
       `);
 
       await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_oauth_accounts_tenant_platform
+        ON oauth_accounts (tenant_id, platform);
+      `);
+
+      await client.query(`
         CREATE TABLE IF NOT EXISTS oauth_debug_events (
           id TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL DEFAULT 'default',
           type TEXT NOT NULL,
           provider TEXT,
           platform TEXT,
@@ -149,17 +167,33 @@ async function ensureOAuthStorage(): Promise<void> {
       `);
 
       await client.query(`
+        ALTER TABLE oauth_debug_events
+        ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default';
+      `);
+
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_oauth_debug_events_created_at
         ON oauth_debug_events (created_at DESC);
       `);
 
       await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_oauth_debug_events_tenant_created_at
+        ON oauth_debug_events (tenant_id, created_at DESC);
+      `);
+
+      await client.query(`
         CREATE TABLE IF NOT EXISTS oauth_states (
           state TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL DEFAULT 'default',
           provider TEXT NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           expires_at TIMESTAMPTZ NOT NULL
         );
+      `);
+
+      await client.query(`
+        ALTER TABLE oauth_states
+        ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default';
       `);
 
       await client.query(`
@@ -170,6 +204,7 @@ async function ensureOAuthStorage(): Promise<void> {
       await client.query(`
         CREATE TABLE IF NOT EXISTS oauth_account_pages (
           id TEXT PRIMARY KEY,
+          tenant_id TEXT NOT NULL DEFAULT 'default',
           account_key TEXT NOT NULL REFERENCES oauth_accounts(key) ON DELETE CASCADE,
           platform TEXT NOT NULL,
           page_id TEXT NOT NULL,
@@ -184,8 +219,18 @@ async function ensureOAuthStorage(): Promise<void> {
       `);
 
       await client.query(`
+        ALTER TABLE oauth_account_pages
+        ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default';
+      `);
+
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_oauth_account_pages_account_key
         ON oauth_account_pages (account_key);
+      `);
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_oauth_account_pages_tenant_account
+        ON oauth_account_pages (tenant_id, account_key);
       `);
     }).catch((error) => {
       schemaPromise = null;
@@ -198,6 +243,7 @@ async function ensureOAuthStorage(): Promise<void> {
 
 function mapPageRow(row: {
   id: string;
+  tenant_id?: string | null;
   account_key: string;
   platform: "facebook" | "instagram";
   page_id: string;
@@ -210,6 +256,7 @@ function mapPageRow(row: {
 }): OAuthAccountPage {
   return {
     id: row.id,
+    tenantId: row.tenant_id || DEFAULT_TENANT_ID,
     accountKey: row.account_key,
     platform: row.platform,
     pageId: row.page_id,
@@ -222,12 +269,13 @@ function mapPageRow(row: {
   };
 }
 
-function getAccountKey(account: OAuthAccount): string {
-  return `${account.platform}-${account.handle || randomUUID()}`;
+function getAccountKey(account: OAuthAccount, tenantId: string): string {
+  return `${tenantId}-${account.platform}-${account.handle || randomUUID()}`;
 }
 
 function mapAccountRow(row: {
   key: string;
+  tenant_id?: string | null;
   platform: OAuthAccount["platform"];
   access_token: string;
   refresh_token?: string | null;
@@ -241,6 +289,7 @@ function mapAccountRow(row: {
 }): StoredOAuthAccount {
   return {
     key: row.key,
+    tenantId: row.tenant_id || DEFAULT_TENANT_ID,
     platform: row.platform,
     accessToken: row.access_token,
     refreshToken: row.refresh_token || undefined,
@@ -258,6 +307,7 @@ function mapAccountRow(row: {
 
 function mapDebugEventRow(row: {
   id: string;
+  tenant_id?: string | null;
   type: OAuthDebugEvent["type"];
   provider?: string | null;
   platform?: OAuthAccount["platform"] | null;
@@ -267,6 +317,7 @@ function mapDebugEventRow(row: {
 }): OAuthDebugEvent {
   return {
     id: row.id,
+    tenantId: row.tenant_id || DEFAULT_TENANT_ID,
     type: row.type,
     provider: row.provider || undefined,
     platform: row.platform || undefined,
@@ -277,16 +328,19 @@ function mapDebugEventRow(row: {
 }
 
 export class OAuthStorage {
-  async addAccount(account: OAuthAccount): Promise<string> {
+  async addAccount(account: OAuthAccount, tenantId?: string): Promise<string> {
+    const scopedTenantId = normalizeTenantId(tenantId || account.tenantId);
+    await ensureTenant(scopedTenantId);
     await ensureOAuthStorage();
 
-    const key = getAccountKey(account);
+    const key = getAccountKey(account, scopedTenantId);
 
     await withClient((client) =>
       client.query(
         `
           INSERT INTO oauth_accounts (
             key,
+            tenant_id,
             platform,
             access_token,
             refresh_token,
@@ -298,9 +352,10 @@ export class OAuthStorage {
             profile_picture,
             connected_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
           ON CONFLICT (key)
           DO UPDATE SET
+            tenant_id = EXCLUDED.tenant_id,
             access_token = EXCLUDED.access_token,
             refresh_token = EXCLUDED.refresh_token,
             expires_at = EXCLUDED.expires_at,
@@ -314,6 +369,7 @@ export class OAuthStorage {
         `,
         [
           key,
+          scopedTenantId,
           account.platform,
           account.accessToken,
           account.refreshToken ?? null,
@@ -341,14 +397,15 @@ export class OAuthStorage {
         expiresAt: account.expiresAt,
         scope: account.scope,
       },
-    });
+    }, scopedTenantId);
 
     return key;
   }
 
-  async getAccounts(platform?: string): Promise<OAuthAccount[]> {
-    const accounts = await this.getStoredAccounts(platform);
+  async getAccounts(params?: { tenantId?: string; platform?: string }): Promise<OAuthAccount[]> {
+    const accounts = await this.getStoredAccounts(params);
     return accounts.map((storedAccount) => ({
+      tenantId: storedAccount.tenantId,
       platform: storedAccount.platform,
       accessToken: storedAccount.accessToken,
       refreshToken: storedAccount.refreshToken,
@@ -362,7 +419,8 @@ export class OAuthStorage {
     }));
   }
 
-  async getStoredAccounts(platform?: string): Promise<StoredOAuthAccount[]> {
+  async getStoredAccounts(params?: { tenantId?: string; platform?: string }): Promise<StoredOAuthAccount[]> {
+    const tenantId = normalizeTenantId(params?.tenantId);
     await ensureOAuthStorage();
 
     return withClient(async (client) => {
@@ -370,6 +428,7 @@ export class OAuthStorage {
         `
           SELECT
             key,
+            tenant_id,
             platform,
             access_token,
             refresh_token,
@@ -381,17 +440,19 @@ export class OAuthStorage {
             profile_picture,
             connected_at
           FROM oauth_accounts
-          WHERE ($1::TEXT IS NULL OR platform = $1)
+          WHERE tenant_id = $1
+            AND ($2::TEXT IS NULL OR platform = $2)
           ORDER BY connected_at DESC
         `,
-        [platform ?? null],
+        [tenantId, params?.platform ?? null],
       );
 
       return result.rows.map(mapAccountRow);
     });
   }
 
-  async getStoredAccount(key: string): Promise<StoredOAuthAccount | null> {
+  async getStoredAccount(key: string, tenantId?: string): Promise<StoredOAuthAccount | null> {
+    const scopedTenantId = normalizeTenantId(tenantId);
     await ensureOAuthStorage();
 
     return withClient(async (client) => {
@@ -399,6 +460,7 @@ export class OAuthStorage {
         `
           SELECT
             key,
+            tenant_id,
             platform,
             access_token,
             refresh_token,
@@ -410,25 +472,30 @@ export class OAuthStorage {
             profile_picture,
             connected_at
           FROM oauth_accounts
-          WHERE key = $1
+          WHERE key = $1 AND tenant_id = $2
           LIMIT 1
         `,
-        [key],
+        [key, scopedTenantId],
       );
 
       return result.rows[0] ? mapAccountRow(result.rows[0]) : null;
     });
   }
 
-  async removeAccount(key: string): Promise<void> {
+  async removeAccount(key: string, tenantId?: string): Promise<void> {
+    const scopedTenantId = normalizeTenantId(tenantId);
     await ensureOAuthStorage();
 
     await withClient((client) =>
-      client.query("DELETE FROM oauth_accounts WHERE key = $1", [key]),
+      client.query("DELETE FROM oauth_accounts WHERE key = $1 AND tenant_id = $2", [
+        key,
+        scopedTenantId,
+      ]),
     );
   }
 
-  async updateAccountLabel(key: string, label: string | null): Promise<void> {
+  async updateAccountLabel(key: string, label: string | null, tenantId?: string): Promise<void> {
+    const scopedTenantId = normalizeTenantId(tenantId);
     await ensureOAuthStorage();
 
     await withClient((client) =>
@@ -436,16 +503,18 @@ export class OAuthStorage {
         `
           UPDATE oauth_accounts
           SET label = $2, updated_at = NOW()
-          WHERE key = $1
+          WHERE key = $1 AND tenant_id = $3
         `,
-        [key, label],
+        [key, label, scopedTenantId],
       ),
     );
   }
 
-  async upsertAccountPages(pages: OAuthAccountPage[]): Promise<void> {
+  async upsertAccountPages(pages: OAuthAccountPage[], tenantId?: string): Promise<void> {
     if (pages.length === 0) return;
 
+    const scopedTenantId = normalizeTenantId(tenantId || pages[0]?.tenantId);
+    await ensureTenant(scopedTenantId);
     await ensureOAuthStorage();
 
     await withClient(async (client) => {
@@ -457,6 +526,7 @@ export class OAuthStorage {
             `
               INSERT INTO oauth_account_pages (
                 id,
+                tenant_id,
                 account_key,
                 platform,
                 page_id,
@@ -467,9 +537,10 @@ export class OAuthStorage {
                 is_default,
                 synced_at
               )
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
               ON CONFLICT (account_key, platform, page_id)
               DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
                 page_name = EXCLUDED.page_name,
                 page_access_token = EXCLUDED.page_access_token,
                 instagram_business_account_id = EXCLUDED.instagram_business_account_id,
@@ -478,6 +549,7 @@ export class OAuthStorage {
             `,
             [
               page.id,
+              scopedTenantId,
               page.accountKey,
               page.platform,
               page.pageId,
@@ -498,7 +570,12 @@ export class OAuthStorage {
     });
   }
 
-  async getAccountPages(accountKey?: string): Promise<OAuthAccountPage[]> {
+  async getAccountPages(
+    params?: string | { tenantId?: string; accountKey?: string },
+  ): Promise<OAuthAccountPage[]> {
+    const query =
+      typeof params === "string" ? { accountKey: params } : params || {};
+    const tenantId = normalizeTenantId(query.tenantId);
     await ensureOAuthStorage();
 
     return withClient(async (client) => {
@@ -506,6 +583,7 @@ export class OAuthStorage {
         `
           SELECT
             id,
+            tenant_id,
             account_key,
             platform,
             page_id,
@@ -516,10 +594,11 @@ export class OAuthStorage {
             is_default,
             synced_at
           FROM oauth_account_pages
-          WHERE ($1::TEXT IS NULL OR account_key = $1)
+          WHERE tenant_id = $1
+            AND ($2::TEXT IS NULL OR account_key = $2)
           ORDER BY platform ASC, is_default DESC, page_name ASC
         `,
-        [accountKey ?? null],
+        [tenantId, query.accountKey ?? null],
       );
 
       return result.rows.map(mapPageRow);
@@ -529,7 +608,9 @@ export class OAuthStorage {
   async setDefaultAccountPage(params: {
     accountKey: string;
     pageRecordId: string;
+    tenantId?: string;
   }): Promise<void> {
+    const tenantId = normalizeTenantId(params.tenantId);
     await ensureOAuthStorage();
 
     await withClient(async (client) => {
@@ -540,10 +621,10 @@ export class OAuthStorage {
           `
             SELECT platform
             FROM oauth_account_pages
-            WHERE id = $1 AND account_key = $2
+            WHERE id = $1 AND account_key = $2 AND tenant_id = $3
             LIMIT 1
           `,
-          [params.pageRecordId, params.accountKey],
+          [params.pageRecordId, params.accountKey, tenantId],
         );
         const platform = pageResult.rows[0]?.platform;
 
@@ -555,17 +636,17 @@ export class OAuthStorage {
           `
             UPDATE oauth_account_pages
             SET is_default = FALSE
-            WHERE account_key = $1 AND platform = $2
+            WHERE account_key = $1 AND platform = $2 AND tenant_id = $3
           `,
-          [params.accountKey, platform],
+          [params.accountKey, platform, tenantId],
         );
         await client.query(
           `
             UPDATE oauth_account_pages
             SET is_default = TRUE
-            WHERE id = $1 AND account_key = $2
+            WHERE id = $1 AND account_key = $2 AND tenant_id = $3
           `,
-          [params.pageRecordId, params.accountKey],
+          [params.pageRecordId, params.accountKey, tenantId],
         );
 
         await client.query("COMMIT");
@@ -578,7 +659,9 @@ export class OAuthStorage {
 
   async addDebugEvent(
     event: Omit<OAuthDebugEvent, "id" | "createdAt">,
+    tenantId?: string,
   ): Promise<OAuthDebugEvent> {
+    const scopedTenantId = normalizeTenantId(tenantId || event.tenantId);
     await ensureOAuthStorage();
 
     const id = randomUUID();
@@ -589,6 +672,7 @@ export class OAuthStorage {
         `
           INSERT INTO oauth_debug_events (
             id,
+            tenant_id,
             type,
             provider,
             platform,
@@ -596,10 +680,11 @@ export class OAuthStorage {
             details,
             created_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6::JSONB, $7)
+          VALUES ($1, $2, $3, $4, $5, $6, $7::JSONB, $8)
         `,
         [
           id,
+          scopedTenantId,
           event.type,
           event.provider ?? null,
           event.platform ?? null,
@@ -612,18 +697,22 @@ export class OAuthStorage {
 
     return {
       ...event,
+      tenantId: scopedTenantId,
       id,
       createdAt,
     };
   }
 
-  async getDebugEvents(): Promise<OAuthDebugEvent[]> {
+  async getDebugEvents(tenantId?: string): Promise<OAuthDebugEvent[]> {
+    const scopedTenantId = normalizeTenantId(tenantId);
     await ensureOAuthStorage();
 
     return withClient(async (client) => {
-      const result = await client.query(`
+      const result = await client.query(
+        `
         SELECT
           id,
+          tenant_id,
           type,
           provider,
           platform,
@@ -631,9 +720,12 @@ export class OAuthStorage {
           details,
           created_at
         FROM oauth_debug_events
+        WHERE tenant_id = $1
         ORDER BY created_at DESC
         LIMIT 50
-      `);
+      `,
+        [scopedTenantId],
+      );
 
       return result.rows.map(mapDebugEventRow);
     });
@@ -642,8 +734,11 @@ export class OAuthStorage {
   async saveOAuthState(params: {
     state: string;
     provider: string;
+    tenantId?: string;
     ttlSeconds?: number;
   }): Promise<void> {
+    const tenantId = normalizeTenantId(params.tenantId);
+    await ensureTenant(tenantId);
     await ensureOAuthStorage();
 
     const ttlSeconds = params.ttlSeconds ?? 10 * 60;
@@ -651,15 +746,16 @@ export class OAuthStorage {
     await withClient((client) =>
       client.query(
         `
-          INSERT INTO oauth_states (state, provider, expires_at)
-          VALUES ($1, $2, NOW() + ($3::INT * INTERVAL '1 second'))
+          INSERT INTO oauth_states (state, tenant_id, provider, expires_at)
+          VALUES ($1, $2, $3, NOW() + ($4::INT * INTERVAL '1 second'))
           ON CONFLICT (state)
           DO UPDATE SET
+            tenant_id = EXCLUDED.tenant_id,
             provider = EXCLUDED.provider,
             expires_at = EXCLUDED.expires_at,
             created_at = NOW()
         `,
-        [params.state, params.provider, ttlSeconds],
+        [params.state, tenantId, params.provider, ttlSeconds],
       ),
     );
   }
@@ -667,7 +763,7 @@ export class OAuthStorage {
   async consumeOAuthState(params: {
     state: string;
     provider: string;
-  }): Promise<boolean> {
+  }): Promise<{ valid: boolean; tenantId?: string }> {
     await ensureOAuthStorage();
 
     return withClient(async (client) => {
@@ -679,12 +775,16 @@ export class OAuthStorage {
           WHERE state = $1
             AND provider = $2
             AND expires_at >= NOW()
-          RETURNING state
+          RETURNING state, tenant_id
         `,
         [params.state, params.provider],
       );
 
-      return (result.rowCount || 0) > 0;
+      const row = result.rows[0];
+      return {
+        valid: (result.rowCount || 0) > 0,
+        tenantId: row?.tenant_id || undefined,
+      };
     });
   }
 }

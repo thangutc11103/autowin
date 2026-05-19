@@ -8,6 +8,7 @@ import {
   shouldUseSecureCookie,
 } from "@/lib/oauth-utils";
 import { oauthStorage } from "@/lib/oauth-storage";
+import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,7 @@ export async function GET(
   if (limitResponse) return limitResponse;
 
   const { provider } = await context.params;
+  const tenantId = getTenantIdFromRequest(request);
   const config = getOAuthProvider(provider);
 
   if (!config) {
@@ -39,6 +41,7 @@ export async function GET(
   await oauthStorage.saveOAuthState({
     state,
     provider: config.provider,
+    tenantId,
   });
 
   const response = NextResponse.redirect(config.getAuthUrl(state));

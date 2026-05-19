@@ -59,7 +59,7 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-    command: npx ts-node scripts/worker.ts
+    command: npm run worker
 
 volumes:
   redis_data:

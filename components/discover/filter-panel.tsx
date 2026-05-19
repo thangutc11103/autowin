@@ -158,7 +158,7 @@ export default function FilterPanel() {
         });
 
         try {
-            const response = await fetch('/api/instagram/validate-cookies', {
+            const response = await fetch('/api/scrapers/instagram/validate-cookies', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

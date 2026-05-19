@@ -7,6 +7,7 @@ import type {
 } from "@/types/job";
 import type { NextRequest } from "next/server";
 import { createRateLimiter } from "@/lib/rate-limit";
+import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
 const rateLimiter = createRateLimiter(30); // 30 requests per minute
 
@@ -156,6 +157,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = (await request.json()) as DecomposeFilterRequest;
+    const tenantId = getTenantIdFromRequest(request);
 
     if (!body?.platform) {
       return Response.json({ error: "Platform is required" }, { status: 400 });
@@ -213,6 +215,7 @@ export async function POST(request: NextRequest) {
 
         jobs.push({
           id,
+          tenantId,
           platform: body.platform,
           type,
           value: normalizedValue,

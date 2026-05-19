@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { oauthStorage } from "@/lib/oauth-storage";
+import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,9 +12,10 @@ function maskToken(token?: string) {
   return `${token.slice(0, 6)}...${token.slice(-4)}`;
 }
 
-export async function GET() {
-  const storedAccounts = await oauthStorage.getStoredAccounts();
-  const debugEvents = await oauthStorage.getDebugEvents();
+export async function GET(request: Request) {
+  const tenantId = getTenantIdFromRequest(request);
+  const storedAccounts = await oauthStorage.getStoredAccounts({ tenantId });
+  const debugEvents = await oauthStorage.getDebugEvents(tenantId);
   const accounts = storedAccounts.map((account) => ({
     key: account.key,
     platform: account.platform,
@@ -44,6 +46,7 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
+  const tenantId = getTenantIdFromRequest(request);
   const body = (await request.json()) as {
     key?: string;
     label?: string | null;
@@ -54,12 +57,13 @@ export async function PATCH(request: Request) {
   }
 
   const label = body.label?.trim() || null;
-  await oauthStorage.updateAccountLabel(body.key, label);
+  await oauthStorage.updateAccountLabel(body.key, label, tenantId);
 
   return NextResponse.json({ success: true });
 }
 
 export async function DELETE(request: Request) {
+  const tenantId = getTenantIdFromRequest(request);
   const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
 
@@ -67,7 +71,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Missing account key" }, { status: 400 });
   }
 
-  await oauthStorage.removeAccount(key);
+  await oauthStorage.removeAccount(key, tenantId);
 
   return NextResponse.json({ success: true });
 }

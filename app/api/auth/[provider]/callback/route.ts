@@ -8,6 +8,7 @@ import {
   type OAuthProvider,
 } from "@/lib/oauth-utils";
 import { oauthStorage } from "@/lib/oauth-storage";
+import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
 export const runtime = "nodejs";
 
@@ -51,12 +52,14 @@ export async function GET(
   const stateMatchesCookie = Boolean(
     state && expectedState && state === expectedState,
   );
-  const stateMatchesDatabase = state
+  const consumedState = state
     ? await oauthStorage.consumeOAuthState({
         state,
         provider: config.provider,
       })
-    : false;
+    : { valid: false };
+  const stateMatchesDatabase = consumedState.valid;
+  const tenantId = consumedState.tenantId || getTenantIdFromRequest(request);
 
   if (error) {
     console.error(`[OAuth/${config.label}/Callback] Provider returned error: ${error}`);
@@ -68,7 +71,7 @@ export async function GET(
         error,
         errorDescription: searchParams.get("error_description"),
       },
-    });
+    }, tenantId);
     return redirectWithClearedState(config.provider, config.stateCookie);
   }
 
@@ -85,7 +88,7 @@ export async function GET(
         stateMatchesCookie,
         stateMatchesDatabase,
       },
-    });
+    }, tenantId);
     return redirectWithClearedState(config.provider, config.stateCookie);
   }
 
@@ -97,12 +100,12 @@ export async function GET(
       details: {
         hasCode: true,
       },
-    });
+    }, tenantId);
 
     const tokenData = await config.exchangeCode(code);
 
     for (const account of config.toAccounts(tokenData)) {
-      await oauthStorage.addAccount(account);
+      await oauthStorage.addAccount(account, tenantId);
     }
 
     const response = NextResponse.redirect(getAccountsRedirect(config.provider, "success"));
@@ -127,7 +130,7 @@ export async function GET(
             ? exchangeError.message.slice(0, 500)
             : String(exchangeError).slice(0, 500),
       },
-    });
+    }, tenantId);
     return redirectWithClearedState(config.provider, config.stateCookie);
   }
 }

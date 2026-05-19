@@ -7,7 +7,6 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "setup:oauth": "node create-oauth-routes.js",
     "worker": "tsx scripts/worker.ts",
     "test:decodo-clean": "tsx scripts/test-decodo-clean.ts",
     "test:decodo-targets": "tsx scripts/test-decodo-targets.ts",

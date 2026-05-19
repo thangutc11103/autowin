@@ -9,7 +9,7 @@
 import * as dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 
-import { Worker, QueueEvents } from "bullmq";
+import { QueueEvents, UnrecoverableError, Worker } from "bullmq";
 import { getRedis } from "@/lib/redis";
 import type { PublishJobData } from "@/lib/queue";
 import { ScraperFactory } from "@/lib/scrapers/scraper-factory";
@@ -18,10 +18,13 @@ import {
   updateScrapedVideoMediaByJobUrl,
 } from "@/lib/database/scrape-storage";
 import {
+  getPublishTargetContext,
   markTargetFailed,
   markTargetPublished,
   markTargetPublishing,
 } from "@/lib/database/posting-storage";
+import { FacebookPublishError, publishFacebookVideo } from "@/lib/publish/facebook";
+import { TikTokPublishError, publishTikTokVideo } from "@/lib/publish/tiktok";
 import { resolveMediaWithYtDlp } from "@/lib/media/yt-dlp-resolver";
 import type { CrawlJobData } from "@/types/job";
 import type { ScrapedVideo } from "@/types/scrape";
@@ -35,7 +38,23 @@ const MEDIA_WARMUP_CONCURRENCY = Math.max(
   Number(process.env.MEDIA_RESOLVE_WARMUP_CONCURRENCY || 2),
 );
 
+function isUnrecoverablePublishError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes("TikTok account is missing") ||
+    error.message.includes("content-sharing-guidelines") ||
+    error.message.includes("integration guidelines") ||
+    error.message.includes("Selected TikTok account was not found") ||
+    error.message.includes("No Facebook Page target selected") ||
+    error.message.includes("Selected Facebook Page is missing")
+  );
+}
+
 async function warmupMediaUrls(params: {
+  tenantId: string;
   jobId: string;
   videos: ScrapedVideo[];
 }) {
@@ -77,6 +96,7 @@ async function warmupMediaUrls(params: {
       }
 
       await updateScrapedVideoMediaByJobUrl({
+        tenantId: params.tenantId,
         jobId: params.jobId,
         videoUrl: video.url,
         title: resolved.title,
@@ -107,7 +127,7 @@ function setupWorker() {
   const worker = new Worker<CrawlJobData>(
     "crawl-tasks",
     async (job) => {
-      const { platform, type, value, targetUrl, limit } = job.data;
+      const { tenantId, platform, type, value, targetUrl, limit } = job.data;
 
       console.log(`\n${"=".repeat(60)}`);
       console.log(`[JOB ${job.id}] Started`);
@@ -227,6 +247,7 @@ function setupWorker() {
 
             void warmupMediaUrls({
               jobId: dbResult.jobId,
+              tenantId,
               videos: mappedVideos,
             }).catch((mediaError) => {
               const mediaMsg =
@@ -321,32 +342,87 @@ function setupPublishWorker() {
   const worker = new Worker<PublishJobData>(
     "publish-tasks",
     async (job) => {
-      const { postId, targetId } = job.data;
+      const { tenantId, postId, targetId } = job.data;
 
       console.log(`[PUBLISH ${job.id}] Started post=${postId} target=${targetId}`);
 
       try {
         await job.updateProgress(20);
-        await markTargetPublishing({ postId, targetId });
+        await markTargetPublishing({ tenantId, postId, targetId });
 
         await job.updateProgress(60);
-        // Placeholder adapter: real platform publishing APIs plug in here.
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        const context = await getPublishTargetContext({ tenantId, postId, targetId });
+
+        if (!context) {
+          throw new Error("Publish target context not found");
+        }
 
         await job.updateProgress(100);
-        await markTargetPublished({ postId, targetId });
+        if (context.platform === "facebook") {
+          const result = await publishFacebookVideo(context);
+          await markTargetPublished({
+            tenantId,
+            postId,
+            targetId,
+            platformPostId: result.platformPostId,
+            platformResponse: result.response,
+          });
+        } else if (context.platform === "tiktok") {
+          const result = await publishTikTokVideo(context);
+          await markTargetPublished({
+            tenantId,
+            postId,
+            targetId,
+            platformPostId: result.platformPostId,
+            platformResponse: result.response,
+          });
+        } else {
+          // Placeholder adapter: real platform publishing APIs plug in here.
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          await markTargetPublished({
+            tenantId,
+            postId,
+            targetId,
+            platformResponse: { mocked: true, platform: context.platform },
+          });
+        }
 
         console.log(`[PUBLISH ${job.id}] Completed post=${postId} target=${targetId}`);
         return {
           postId,
           targetId,
           publishedAt: new Date().toISOString(),
-          mocked: true,
+          mocked: context.platform !== "facebook",
         };
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        await markTargetFailed({ postId, targetId, error: errorMsg });
+        await markTargetFailed({
+          tenantId,
+          postId,
+          targetId,
+          error: errorMsg,
+          platformResponse:
+            error instanceof FacebookPublishError
+              ? {
+                  response: error.response,
+                  fileUrl: error.fileUrl,
+                  status: error.status,
+                }
+              : error instanceof TikTokPublishError
+                ? {
+                    response: error.response,
+                    filePath: error.filePath,
+                    endpoint: error.endpoint,
+                    status: error.status,
+                  }
+              : undefined,
+        });
         console.error(`[PUBLISH ${job.id}] FAILED: ${errorMsg}`);
+
+        if (isUnrecoverablePublishError(error)) {
+          throw new UnrecoverableError(errorMsg);
+        }
+
         throw error;
       }
     },

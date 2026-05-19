@@ -1,6 +1,10 @@
 import { getCrawlQueue } from "@/lib/queue";
 import type { Redis } from "ioredis";
 import type { NextRequest } from "next/server";
+import {
+  DEFAULT_TENANT_ID,
+  getTenantIdFromRequest,
+} from "@/lib/tenant-context";
 
 interface QueueWithClient {
   client?: Redis;
@@ -8,6 +12,7 @@ interface QueueWithClient {
 
 export async function POST(request: NextRequest) {
   try {
+    const tenantId = getTenantIdFromRequest(request);
     const { batchId, platform } = await request.json();
 
     if (!batchId) {
@@ -49,7 +54,8 @@ export async function POST(request: NextRequest) {
     // Lọc jobs của batch này
     const batchJobs = allJobs.filter((job) => {
       const jobBatchId = job.data.batchId;
-      const match = jobBatchId === batchId;
+      const jobTenantId = job.data.tenantId || DEFAULT_TENANT_ID;
+      const match = jobBatchId === batchId && jobTenantId === tenantId;
       if (match) {
         console.log(
           `[CLEAR] Matched job ${job.id} with batchId: ${jobBatchId}`,

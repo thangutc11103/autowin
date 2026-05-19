@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { oauthStorage, type OAuthAccountPage } from "@/lib/oauth-storage";
+import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -86,14 +87,16 @@ async function fetchMetaPages(userAccessToken: string): Promise<OAuthAccountPage
 }
 
 export async function GET(request: Request) {
+  const tenantId = getTenantIdFromRequest(request);
   const { searchParams } = new URL(request.url);
   const accountKey = searchParams.get("accountKey") || undefined;
-  const pages = await oauthStorage.getAccountPages(accountKey);
+  const pages = await oauthStorage.getAccountPages({ tenantId, accountKey });
 
   return NextResponse.json({ pages: pages.map(maskPage) });
 }
 
 export async function POST(request: Request) {
+  const tenantId = getTenantIdFromRequest(request);
   const body = (await request.json().catch(() => ({}))) as {
     accountKey?: string;
   };
@@ -102,7 +105,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing account key" }, { status: 400 });
   }
 
-  const account = await oauthStorage.getStoredAccount(body.accountKey);
+  const account = await oauthStorage.getStoredAccount(body.accountKey, tenantId);
 
   if (!account) {
     return NextResponse.json({ error: "Account not found" }, { status: 404 });
@@ -123,11 +126,15 @@ export async function POST(request: Request) {
     )
     .map((page) => ({
       ...page,
+      tenantId,
       accountKey: body.accountKey!,
     }));
 
-  await oauthStorage.upsertAccountPages(pages);
-  const savedPages = await oauthStorage.getAccountPages(body.accountKey);
+  await oauthStorage.upsertAccountPages(pages, tenantId);
+  const savedPages = await oauthStorage.getAccountPages({
+    tenantId,
+    accountKey: body.accountKey,
+  });
 
   return NextResponse.json({
     success: true,
@@ -136,6 +143,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const tenantId = getTenantIdFromRequest(request);
   const body = (await request.json().catch(() => ({}))) as {
     accountKey?: string;
     pageRecordId?: string;
@@ -151,8 +159,12 @@ export async function PATCH(request: Request) {
   await oauthStorage.setDefaultAccountPage({
     accountKey: body.accountKey,
     pageRecordId: body.pageRecordId,
+    tenantId,
   });
 
-  const pages = await oauthStorage.getAccountPages(body.accountKey);
+  const pages = await oauthStorage.getAccountPages({
+    tenantId,
+    accountKey: body.accountKey,
+  });
   return NextResponse.json({ success: true, pages: pages.map(maskPage) });
 }

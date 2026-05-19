@@ -6,6 +6,7 @@ import {
 } from "@/lib/database/posting-storage";
 import { addPublishJob } from "@/lib/queue";
 import type { Video } from "@/types/video";
+import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,12 +19,14 @@ interface QueuePostRequest {
   accountTargets?: QueuePostTargetInput[];
 }
 
-export async function GET() {
-  const posts = await listScheduledPosts({ limit: 100 });
+export async function GET(request: Request) {
+  const tenantId = getTenantIdFromRequest(request);
+  const posts = await listScheduledPosts({ tenantId, limit: 100 });
   return NextResponse.json({ posts });
 }
 
 export async function POST(request: Request) {
+  const tenantId = getTenantIdFromRequest(request);
   const body = (await request.json().catch(() => ({}))) as QueuePostRequest;
 
   if (!body.video) {
@@ -55,6 +58,7 @@ export async function POST(request: Request) {
   }
 
   const post = await createQueuedPost({
+    tenantId,
     video: body.video,
     caption: body.caption.trim(),
     publishWindow,
@@ -69,6 +73,7 @@ export async function POST(request: Request) {
   await Promise.all(
     post.targets.map((target) =>
       addPublishJob({
+        tenantId,
         postId: post.id,
         targetId: target.id,
         delayMs,

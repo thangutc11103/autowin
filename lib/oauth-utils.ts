@@ -53,6 +53,8 @@ function getEnvList(name: string, fallback: string): string {
   return getEnv(name) || fallback;
 }
 
+const defaultTikTokScopes = "user.info.basic,video.publish";
+
 function expiresAt(expiresIn?: number): string | undefined {
   if (!expiresIn) return undefined;
   return new Date(Date.now() + expiresIn * 1000).toISOString();
@@ -78,7 +80,7 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, OAuthProviderConfig> = {
       const params = new URLSearchParams({
         client_key: getEnv("TIKTOK_CLIENT_KEY"),
         response_type: "code",
-        scope: getEnvList("TIKTOK_SCOPES", "user.info.basic"),
+        scope: getEnvList("TIKTOK_SCOPES", defaultTikTokScopes),
         redirect_uri: getRedirectUri(this.callbackPath),
         state,
       });
