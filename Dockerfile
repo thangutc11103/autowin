@@ -53,7 +53,7 @@ COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/lib ./lib
 COPY --from=builder /app/types ./types
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
-COPY --from=builder /app/public ./public
+RUN mkdir -p public/prepared-videos
 
 # Environment
 ENV NODE_ENV=production
