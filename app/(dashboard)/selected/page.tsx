@@ -207,6 +207,48 @@ function VideoThumb({ video }: { video: Video }) {
     );
 }
 
+function getStorageProvider(video: Video): string {
+    const provider = video.rawPayload?.storageProvider;
+    return typeof provider === 'string' ? provider : 'unknown';
+}
+
+function isRemoteMediaUrl(url?: string) {
+    return Boolean(url && /^https?:\/\//i.test(url));
+}
+
+function getMediaReadiness(video: Video) {
+    const provider = getStorageProvider(video);
+    const url = video.preparedLocalUrl || video.url;
+
+    if (provider === 'cloudflare-r2' || isRemoteMediaUrl(video.preparedLocalUrl)) {
+        return {
+            label: 'R2 ready',
+            linkLabel: 'Open R2 file',
+            badgeClass: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+            isReady: true,
+            url,
+        };
+    }
+
+    if (provider === 'local' || video.preparedLocalPath || video.preparedLocalUrl?.startsWith('/')) {
+        return {
+            label: 'Local only',
+            linkLabel: 'Open local file',
+            badgeClass: 'bg-amber-50 text-amber-700 ring-amber-100',
+            isReady: process.env.NODE_ENV !== 'production',
+            url,
+        };
+    }
+
+    return {
+        label: 'Preparing',
+        linkLabel: 'Open file',
+        badgeClass: 'bg-gray-100 text-gray-600 ring-gray-200',
+        isReady: false,
+        url,
+    };
+}
+
 function VideoRow({
     video,
     checked,
@@ -222,6 +264,8 @@ function VideoRow({
     onToggle?: (id: string) => void;
     onRemove: (id: string) => void;
 }) {
+    const readiness = getMediaReadiness(video);
+
     return (
         <div className="flex gap-3 rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
             {mode === 'selected' && (
@@ -257,15 +301,22 @@ function VideoRow({
                 {video.description && (
                     <p className="line-clamp-1 text-xs text-gray-500">{video.description}</p>
                 )}
-                {mode === 'posting' && video.preparedLocalUrl && (
-                    <a
-                        href={video.preparedLocalUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-2 inline-flex rounded-md bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-200"
-                    >
-                        Open local file
-                    </a>
+                {mode === 'posting' && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${readiness.badgeClass}`}>
+                            {readiness.label}
+                        </span>
+                        {readiness.url ? (
+                            <a
+                                href={readiness.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex rounded-md bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-200"
+                            >
+                                {readiness.linkLabel}
+                            </a>
+                        ) : null}
+                    </div>
                 )}
             </div>
 
@@ -304,6 +355,10 @@ export default function SelectedPage() {
         [isVideoPosting, selectedVideos],
     );
     const activeVideos = activeTab === 'selected' ? selectedVideos : postingVideos;
+    const readyPostingVideos = useMemo(
+        () => postingVideos.filter((video) => getMediaReadiness(video).isReady),
+        [postingVideos],
+    );
     const activeItemCount =
         activeTab === 'upload' ? uploadDrafts.length : activeVideos.length;
     const checkedSet = new Set(checkedIds);
@@ -373,6 +428,16 @@ export default function SelectedPage() {
                 throw new Error(`${result.error || 'Failed to prepare selected videos'}${failureText}`);
             }
 
+            const notReadyVideos = result.preparedVideos.filter(
+                (video) => !getMediaReadiness(video).isReady,
+            );
+
+            if (notReadyVideos.length > 0) {
+                throw new Error(
+                    'Prepared media is not ready for production. Check R2 env on the web service and prepare again.',
+                );
+            }
+
             addPostingVideos(result.preparedVideos);
             setCheckedIds([]);
             setActiveTab('posting');
@@ -380,7 +445,7 @@ export default function SelectedPage() {
             const failureText = result.failures?.length
                 ? ` ${result.failures.length} video(s) failed.`
                 : '';
-            setMessage(`Prepared and saved ${result.preparedVideos.length} video(s).${failureText}`);
+            setMessage(`Prepared and saved ${result.preparedVideos.length} video(s) to R2.${failureText}`);
         } catch (error) {
             setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to prepare videos'}`);
         } finally {
@@ -486,6 +551,16 @@ export default function SelectedPage() {
                 throw new Error(result.error || 'Failed to upload videos');
             }
 
+            const notReadyVideos = result.uploadedVideos.filter(
+                (video) => !getMediaReadiness(video).isReady,
+            );
+
+            if (notReadyVideos.length > 0) {
+                throw new Error(
+                    'Uploaded media is not ready for production. Check R2 env on the web service and upload again.',
+                );
+            }
+
             addPostingVideos(result.uploadedVideos);
             uploadDrafts.forEach((draft) => URL.revokeObjectURL(draft.url));
             setUploadDrafts([]);
@@ -544,7 +619,7 @@ export default function SelectedPage() {
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                             }`}
                     >
-                        Ready to Post ({postingVideos.length})
+                        Ready to Post ({readyPostingVideos.length})
                     </button>
                 </div>
 
