@@ -132,10 +132,22 @@ export async function ensureAccessControlStorage(): Promise<void> {
           id TEXT PRIMARY KEY,
           email TEXT UNIQUE,
           display_name TEXT,
+          password_hash TEXT,
           status TEXT NOT NULL DEFAULT 'active',
+          last_login_at TIMESTAMPTZ,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+      `);
+
+      await client.query(`
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS password_hash TEXT;
+      `);
+
+      await client.query(`
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
       `);
 
       await client.query(`
@@ -275,6 +287,7 @@ export async function upsertManagedUser(params: {
   id: string;
   email?: string | null;
   displayName?: string | null;
+  passwordHash?: string | null;
   status?: UserStatus;
   tenantId?: string;
   role?: UserRole;
@@ -307,6 +320,17 @@ export async function upsertManagedUser(params: {
           params.status || "active",
         ],
       );
+
+      if (params.passwordHash) {
+        await client.query(
+          `
+            UPDATE users
+            SET password_hash = $2, updated_at = NOW()
+            WHERE id = $1
+          `,
+          [params.id, params.passwordHash],
+        );
+      }
 
       await client.query(
         `
@@ -455,9 +479,14 @@ export async function requireAdmin(request: Request): Promise<Response | null> {
     return null;
   }
 
-  const userId = getRequestUserId(request);
-  if (!userId) {
+  const { getCurrentUser } = await import("@/lib/auth/session-auth");
+  const user = await getCurrentUser(request);
+  if (!user) {
     return Response.json({ error: "Authentication required" }, { status: 401 });
+  }
+
+  if (user.role === "owner" || user.role === "admin") {
+    return null;
   }
 
   return Response.json({ error: "Admin permission required" }, { status: 403 });
@@ -492,12 +521,14 @@ export async function requireFeature(params: {
     return null;
   }
 
-  const userId = getRequestUserId(params.request);
-  if (!userId) {
+  const { getCurrentUser } = await import("@/lib/auth/session-auth");
+  const user = await getCurrentUser(params.request);
+  if (!user) {
     return Response.json({ error: "Authentication required" }, { status: 401 });
   }
 
   const tenantId = normalizeTenantId(params.tenantId);
+  const userId = user.id;
   await ensureAccessControlStorage();
 
   const allowed = await withClient(async (client) => {
@@ -562,12 +593,14 @@ export async function requireAccountPermission(params: {
     return null;
   }
 
-  const userId = getRequestUserId(params.request);
-  if (!userId) {
+  const { getCurrentUser } = await import("@/lib/auth/session-auth");
+  const user = await getCurrentUser(params.request);
+  if (!user) {
     return Response.json({ error: "Authentication required" }, { status: 401 });
   }
 
   const tenantId = normalizeTenantId(params.tenantId);
+  const userId = user.id;
   await ensureAccessControlStorage();
 
   const allowed = await withClient(async (client) => {

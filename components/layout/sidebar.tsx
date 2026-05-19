@@ -29,7 +29,6 @@ export default function Sidebar() {
                                 : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                                 }`}
                         >
-                            <span className="text-base">{item.icon}</span>
                             <span>{item.label[language]}</span>
                             {/* {item.href === '/selected' && selectedCount > 0 && (
                                 <span className="ml-auto bg-blue-600 text-white text-xs font-bold rounded-full px-1.5 py-0.5 min-w-[20px] text-center">

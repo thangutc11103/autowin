@@ -61,6 +61,7 @@ export default function AdminPage() {
     id: "",
     email: "",
     displayName: "",
+    password: "",
     role: "viewer" as Role,
     status: "active" as Status,
     permissions: new Set<string>(),
@@ -98,6 +99,7 @@ export default function AdminPage() {
       id: selectedUser.id,
       email: selectedUser.email || "",
       displayName: selectedUser.display_name || "",
+      password: "",
       role: selectedUser.role,
       status: selectedUser.status,
       permissions: new Set(
@@ -166,6 +168,7 @@ export default function AdminPage() {
           id: form.id.trim(),
           email: form.email.trim() || null,
           displayName: form.displayName.trim() || null,
+          password: form.password || undefined,
           role: form.role,
           status: form.status,
           permissions: featureKeys.map((featureKey) => ({
@@ -197,6 +200,7 @@ export default function AdminPage() {
       id: "",
       email: "",
       displayName: "",
+      password: "",
       role: "viewer",
       status: "active",
       permissions: new Set<string>(),
@@ -310,6 +314,24 @@ export default function AdminPage() {
               </label>
 
               <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-xs font-semibold uppercase text-gray-500">
+                    Password
+                  </span>
+                  <input
+                    type="password"
+                    value={form.password}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        password: event.target.value,
+                      }))
+                    }
+                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500"
+                    placeholder={selectedUser ? "Leave blank to keep" : "Min 8 characters"}
+                  />
+                </label>
+
                 <label className="block">
                   <span className="text-xs font-semibold uppercase text-gray-500">
                     Role
@@ -434,6 +456,28 @@ export default function AdminPage() {
             </div>
 
             <div className="flex items-center justify-end border-t border-gray-200 px-5 py-4">
+              {selectedUser ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setMessage(null);
+                    const response = await fetch("/api/admin/users", {
+                      method: "DELETE",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ userId: selectedUser.id }),
+                    });
+                    const result = await response.json().catch(() => ({}));
+                    setMessage(
+                      response.ok
+                        ? "User sessions revoked."
+                        : result.error || "Failed to revoke sessions",
+                    );
+                  }}
+                  className="mr-3 rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                >
+                  Sign out devices
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void saveUser()}

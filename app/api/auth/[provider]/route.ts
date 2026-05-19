@@ -9,6 +9,7 @@ import {
 } from "@/lib/oauth-utils";
 import { oauthStorage } from "@/lib/oauth-storage";
 import { getTenantIdFromRequest } from "@/lib/tenant-context";
+import { getCurrentUser } from "@/lib/auth/session-auth";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,7 @@ export async function GET(
 
   const { provider } = await context.params;
   const tenantId = getTenantIdFromRequest(request);
+  const currentUser = await getCurrentUser(request);
   const config = getOAuthProvider(provider);
 
   if (!config) {
@@ -42,6 +44,7 @@ export async function GET(
     state,
     provider: config.provider,
     tenantId,
+    userId: currentUser?.id,
   });
 
   const response = NextResponse.redirect(config.getAuthUrl(state));

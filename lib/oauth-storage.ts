@@ -6,6 +6,7 @@ import { DEFAULT_TENANT_ID, normalizeTenantId } from "@/lib/tenant-context";
 
 export interface OAuthAccount {
   tenantId?: string;
+  userId?: string;
   platform: "tiktok" | "facebook" | "instagram" | "youtube";
   accessToken: string;
   refreshToken?: string;
@@ -121,6 +122,7 @@ async function ensureOAuthStorage(): Promise<void> {
         CREATE TABLE IF NOT EXISTS oauth_accounts (
           key TEXT PRIMARY KEY,
           tenant_id TEXT NOT NULL DEFAULT 'default',
+          user_id TEXT,
           platform TEXT NOT NULL,
           access_token TEXT NOT NULL,
           refresh_token TEXT,
@@ -146,6 +148,11 @@ async function ensureOAuthStorage(): Promise<void> {
       `);
 
       await client.query(`
+        ALTER TABLE oauth_accounts
+        ADD COLUMN IF NOT EXISTS user_id TEXT;
+      `);
+
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_oauth_accounts_platform
         ON oauth_accounts (platform);
       `);
@@ -153,6 +160,11 @@ async function ensureOAuthStorage(): Promise<void> {
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_oauth_accounts_tenant_platform
         ON oauth_accounts (tenant_id, platform);
+      `);
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_oauth_accounts_tenant_user_platform
+        ON oauth_accounts (tenant_id, user_id, platform);
       `);
 
       await client.query(`
@@ -187,6 +199,7 @@ async function ensureOAuthStorage(): Promise<void> {
         CREATE TABLE IF NOT EXISTS oauth_states (
           state TEXT PRIMARY KEY,
           tenant_id TEXT NOT NULL DEFAULT 'default',
+          user_id TEXT,
           provider TEXT NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           expires_at TIMESTAMPTZ NOT NULL
@@ -196,6 +209,11 @@ async function ensureOAuthStorage(): Promise<void> {
       await client.query(`
         ALTER TABLE oauth_states
         ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default';
+      `);
+
+      await client.query(`
+        ALTER TABLE oauth_states
+        ADD COLUMN IF NOT EXISTS user_id TEXT;
       `);
 
       await client.query(`
@@ -278,6 +296,7 @@ function getAccountKey(account: OAuthAccount, tenantId: string): string {
 function mapAccountRow(row: {
   key: string;
   tenant_id?: string | null;
+  user_id?: string | null;
   platform: OAuthAccount["platform"];
   access_token: string;
   refresh_token?: string | null;
@@ -292,6 +311,7 @@ function mapAccountRow(row: {
   return {
     key: row.key,
     tenantId: row.tenant_id || DEFAULT_TENANT_ID,
+    userId: row.user_id || undefined,
     platform: row.platform,
     accessToken: decryptSecret(row.access_token) || "",
     refreshToken: decryptSecret(row.refresh_token),
@@ -343,6 +363,7 @@ export class OAuthStorage {
           INSERT INTO oauth_accounts (
             key,
             tenant_id,
+            user_id,
             platform,
             access_token,
             refresh_token,
@@ -354,10 +375,11 @@ export class OAuthStorage {
             profile_picture,
             connected_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
           ON CONFLICT (key)
           DO UPDATE SET
             tenant_id = EXCLUDED.tenant_id,
+            user_id = EXCLUDED.user_id,
             access_token = EXCLUDED.access_token,
             refresh_token = EXCLUDED.refresh_token,
             expires_at = EXCLUDED.expires_at,
@@ -372,6 +394,7 @@ export class OAuthStorage {
         [
           key,
           scopedTenantId,
+          account.userId ?? null,
           account.platform,
           encryptSecret(account.accessToken),
           encryptSecret(account.refreshToken),
@@ -404,7 +427,7 @@ export class OAuthStorage {
     return key;
   }
 
-  async getAccounts(params?: { tenantId?: string; platform?: string }): Promise<OAuthAccount[]> {
+  async getAccounts(params?: { tenantId?: string; userId?: string | null; platform?: string }): Promise<OAuthAccount[]> {
     const accounts = await this.getStoredAccounts(params);
     return accounts.map((storedAccount) => ({
       tenantId: storedAccount.tenantId,
@@ -421,7 +444,7 @@ export class OAuthStorage {
     }));
   }
 
-  async getStoredAccounts(params?: { tenantId?: string; platform?: string }): Promise<StoredOAuthAccount[]> {
+  async getStoredAccounts(params?: { tenantId?: string; userId?: string | null; platform?: string }): Promise<StoredOAuthAccount[]> {
     const tenantId = normalizeTenantId(params?.tenantId);
     await ensureOAuthStorage();
 
@@ -431,6 +454,7 @@ export class OAuthStorage {
           SELECT
             key,
             tenant_id,
+            user_id,
             platform,
             access_token,
             refresh_token,
@@ -444,9 +468,10 @@ export class OAuthStorage {
           FROM oauth_accounts
           WHERE tenant_id = $1
             AND ($2::TEXT IS NULL OR platform = $2)
+            AND ($3::TEXT IS NULL OR user_id = $3)
           ORDER BY connected_at DESC
         `,
-        [tenantId, params?.platform ?? null],
+        [tenantId, params?.platform ?? null, params?.userId ?? null],
       );
 
       return result.rows.map(mapAccountRow);
@@ -463,6 +488,7 @@ export class OAuthStorage {
           SELECT
             key,
             tenant_id,
+            user_id,
             platform,
             access_token,
             refresh_token,
@@ -737,6 +763,7 @@ export class OAuthStorage {
     state: string;
     provider: string;
     tenantId?: string;
+    userId?: string | null;
     ttlSeconds?: number;
   }): Promise<void> {
     const tenantId = normalizeTenantId(params.tenantId);
@@ -748,16 +775,17 @@ export class OAuthStorage {
     await withClient((client) =>
       client.query(
         `
-          INSERT INTO oauth_states (state, tenant_id, provider, expires_at)
-          VALUES ($1, $2, $3, NOW() + ($4::INT * INTERVAL '1 second'))
+          INSERT INTO oauth_states (state, tenant_id, user_id, provider, expires_at)
+          VALUES ($1, $2, $3, $4, NOW() + ($5::INT * INTERVAL '1 second'))
           ON CONFLICT (state)
           DO UPDATE SET
             tenant_id = EXCLUDED.tenant_id,
+            user_id = EXCLUDED.user_id,
             provider = EXCLUDED.provider,
             expires_at = EXCLUDED.expires_at,
             created_at = NOW()
         `,
-        [params.state, tenantId, params.provider, ttlSeconds],
+        [params.state, tenantId, params.userId ?? null, params.provider, ttlSeconds],
       ),
     );
   }
@@ -765,7 +793,7 @@ export class OAuthStorage {
   async consumeOAuthState(params: {
     state: string;
     provider: string;
-  }): Promise<{ valid: boolean; tenantId?: string }> {
+  }): Promise<{ valid: boolean; tenantId?: string; userId?: string }> {
     await ensureOAuthStorage();
 
     return withClient(async (client) => {
@@ -777,7 +805,7 @@ export class OAuthStorage {
           WHERE state = $1
             AND provider = $2
             AND expires_at >= NOW()
-          RETURNING state, tenant_id
+          RETURNING state, tenant_id, user_id
         `,
         [params.state, params.provider],
       );
@@ -786,6 +814,7 @@ export class OAuthStorage {
       return {
         valid: (result.rowCount || 0) > 0,
         tenantId: row?.tenant_id || undefined,
+        userId: row?.user_id || undefined,
       };
     });
   }

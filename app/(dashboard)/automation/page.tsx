@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { useLanguageStore, type AppLanguage } from '@/store/language.store';
 import { useVideoStore } from '@/store/video.store';
@@ -35,10 +35,14 @@ interface ScheduledPost {
     videoTitle: string;
     caption: string;
     targets: Array<{
+        id?: string;
         accountKey: string;
         platform: Exclude<Platform, 'douyin'>;
         accountLabel?: string | null;
-        status: string;
+        status: PostStatus;
+        lastError?: string | null;
+        platformPostId?: string | null;
+        publishedAt?: string | null;
     }>;
     scheduledAt?: string | null;
     queuedAt: string;
@@ -195,6 +199,14 @@ const POST_STATUS_STYLES: Record<PostStatus, string> = {
     published: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
     failed: 'bg-red-50 text-red-700 ring-red-100',
 };
+
+function getPostStatusStyle(status: string) {
+    return POST_STATUS_STYLES[status as PostStatus] || POST_STATUS_STYLES.queued;
+}
+
+function getPostStatusText(text: (typeof COPY)[AppLanguage], status: string) {
+    return text.postStatus[status as PostStatus] || status;
+}
 
 function getPlatformLabel(platform: Platform) {
     return PLATFORM_LABELS[platform] || platform;
@@ -393,45 +405,41 @@ export default function AutomationPage() {
         };
     }, []);
 
-    async function loadScheduledPosts() {
-        const response = await fetch('/api/posting/queue', { cache: 'no-store' });
-        const data = (await response.json()) as ScheduledPostsResponse;
+    const loadScheduledPosts = useCallback(async (silent = false) => {
+        try {
+            const response = await fetch('/api/posting/queue', { cache: 'no-store' });
+            const data = (await response.json()) as ScheduledPostsResponse;
 
-        if (!response.ok) {
-            throw new Error(data.error || 'Failed to load scheduled posts');
-        }
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to load scheduled posts');
+            }
 
-        setScheduledPosts(data.posts || []);
-    }
-
-    useEffect(() => {
-        let cancelled = false;
-
-        async function loadInitialScheduledPosts() {
-            try {
-                const response = await fetch('/api/posting/queue', { cache: 'no-store' });
-                const data = (await response.json()) as ScheduledPostsResponse;
-
-                if (!response.ok) {
-                    throw new Error(data.error || 'Failed to load scheduled posts');
-                }
-
-                if (!cancelled) {
-                    setScheduledPosts(data.posts || []);
-                }
-            } catch (error) {
-                if (!cancelled) {
-                    setQueueMessage(error instanceof Error ? error.message : 'Failed to load scheduled posts');
-                }
+            setScheduledPosts(data.posts || []);
+        } catch (error) {
+            if (!silent) {
+                setQueueMessage(error instanceof Error ? error.message : 'Failed to load scheduled posts');
             }
         }
+    }, []);
 
-        void loadInitialScheduledPosts();
+    useEffect(() => {
+        const initialRefreshId = window.setTimeout(() => {
+            void loadScheduledPosts(false);
+        }, 0);
+        const intervalId = window.setInterval(() => {
+            void loadScheduledPosts(true);
+        }, 5000);
+        const handleFocus = () => {
+            void loadScheduledPosts(true);
+        };
+        window.addEventListener('focus', handleFocus);
 
         return () => {
-            cancelled = true;
+            window.clearTimeout(initialRefreshId);
+            window.clearInterval(intervalId);
+            window.removeEventListener('focus', handleFocus);
         };
-    }, []);
+    }, [loadScheduledPosts]);
 
     const toggleAccount = (accountKey: string) => {
         setSelectedAccountKeys((current) =>
@@ -479,7 +487,7 @@ export default function AutomationPage() {
                 throw new Error(result.error || 'Failed to queue post');
             }
 
-            await loadScheduledPosts();
+            await loadScheduledPosts(true);
             setMode('scheduled');
             setQueueMessage('Post queued successfully.');
         } catch (error) {
@@ -779,11 +787,24 @@ export default function AutomationPage() {
                                     <div className="min-w-0">
                                         <h2 className="truncate text-sm font-bold text-gray-950">{post.videoTitle}</h2>
                                         <p className="mt-1 line-clamp-2 text-sm text-gray-500">{post.caption}</p>
-                                        <div className="mt-2 flex flex-wrap gap-2">
+                                        <div className="mt-2 grid gap-2">
                                             {post.targets.map((target) => (
-                                                <span key={target.accountKey} className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${PLATFORM_BADGES[target.platform]}`}>
-                                                    {target.accountLabel || getPlatformLabel(target.platform)}
-                                                </span>
+                                                <div
+                                                    key={target.id || target.accountKey}
+                                                    className="flex min-w-0 flex-wrap items-center gap-2"
+                                                >
+                                                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${PLATFORM_BADGES[target.platform]}`}>
+                                                        {target.accountLabel || getPlatformLabel(target.platform)}
+                                                    </span>
+                                                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${getPostStatusStyle(target.status)}`}>
+                                                        {getPostStatusText(text, target.status)}
+                                                    </span>
+                                                    {target.lastError ? (
+                                                        <span className="min-w-0 truncate rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-red-100">
+                                                            {target.lastError}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
                                             ))}
                                         </div>
                                     </div>
@@ -796,8 +817,8 @@ export default function AutomationPage() {
                                         </p>
                                     </div>
                                     <div className="flex items-start justify-between gap-2 md:justify-end">
-                                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ring-1 ${POST_STATUS_STYLES[post.status]}`}>
-                                            {text.postStatus[post.status] || post.status}
+                                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ring-1 ${getPostStatusStyle(post.status)}`}>
+                                            {getPostStatusText(text, post.status)}
                                         </span>
                                     </div>
                                 </div>

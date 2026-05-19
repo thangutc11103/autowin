@@ -60,6 +60,7 @@ export async function GET(
     : { valid: false };
   const stateMatchesDatabase = consumedState.valid;
   const tenantId = consumedState.tenantId || getTenantIdFromRequest(request);
+  const userId = consumedState.userId;
 
   if (error) {
     console.error(`[OAuth/${config.label}/Callback] Provider returned error: ${error}`);
@@ -105,7 +106,7 @@ export async function GET(
     const tokenData = await config.exchangeCode(code);
 
     for (const account of config.toAccounts(tokenData)) {
-      await oauthStorage.addAccount(account, tenantId);
+      await oauthStorage.addAccount({ ...account, userId }, tenantId);
     }
 
     const response = NextResponse.redirect(getAccountsRedirect(config.provider, "success"));

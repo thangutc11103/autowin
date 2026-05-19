@@ -9,6 +9,7 @@ import type { NextRequest } from "next/server";
 import { getScrapeFeatureKey, requireFeature } from "@/lib/auth/access-control";
 import { createRateLimiter } from "@/lib/rate-limit";
 import { getTenantIdFromRequest } from "@/lib/tenant-context";
+import { getCurrentUser } from "@/lib/auth/session-auth";
 
 const rateLimiter = createRateLimiter(30); // 30 requests per minute
 
@@ -159,6 +160,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as DecomposeFilterRequest;
     const tenantId = getTenantIdFromRequest(request);
+    const currentUser = await getCurrentUser(request);
 
     if (!body?.platform) {
       return Response.json({ error: "Platform is required" }, { status: 400 });
@@ -224,6 +226,7 @@ export async function POST(request: NextRequest) {
         jobs.push({
           id,
           tenantId,
+          userId: currentUser?.id,
           platform: body.platform,
           type,
           value: normalizedValue,

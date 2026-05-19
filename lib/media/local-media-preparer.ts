@@ -1,5 +1,5 @@
 import { createWriteStream, existsSync } from "fs";
-import { mkdir, rename, rm } from "fs/promises";
+import { mkdir, readFile, rename, rm } from "fs/promises";
 import path from "path";
 import { Readable } from "stream";
 import { finished } from "stream/promises";
@@ -8,6 +8,7 @@ import { promisify } from "util";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "zlib";
 import ffmpegStatic from "ffmpeg-static";
 import { resolveMediaWithYtDlp } from "@/lib/media/yt-dlp-resolver";
+import { isR2Configured, uploadR2Object } from "@/lib/storage/r2";
 import type { Video } from "@/types/video";
 
 const execFileAsync = promisify(execFile);
@@ -96,6 +97,72 @@ function getExtensionFromUrl(rawUrl: string, fallback: string): string {
   } catch {
     return fallback;
   }
+}
+
+function getVideoTenantId(video: Video): string {
+  const rawTenantId = video.rawPayload?.tenantId;
+  return typeof rawTenantId === "string" && rawTenantId.trim()
+    ? rawTenantId.trim()
+    : process.env.DEFAULT_TENANT_ID || "default";
+}
+
+async function finalizePreparedVideo(params: {
+  video: Video;
+  outputPath: string;
+  localUrl: string;
+  baseName: string;
+  source: NonNullable<Video["preparedSource"]>;
+  rawPayload?: Record<string, unknown>;
+  mediaVideoUrl?: string;
+  mediaAudioUrl?: string | null;
+}): Promise<Video> {
+  if (!isR2Configured()) {
+    return {
+      ...params.video,
+      mediaVideoUrl: params.mediaVideoUrl,
+      mediaAudioUrl: params.mediaAudioUrl,
+      preparedLocalPath: params.outputPath,
+      preparedLocalUrl: params.localUrl,
+      preparedAt: new Date().toISOString(),
+      preparedSource: params.source,
+      rawPayload: {
+        ...params.video.rawPayload,
+        ...params.rawPayload,
+        storageProvider: "local",
+      },
+    };
+  }
+
+  const tenantId = getVideoTenantId(params.video);
+  const key = `tenants/${tenantId}/prepared/${params.baseName}.mp4`;
+  const uploaded = await uploadR2Object({
+    key,
+    body: await readFile(params.outputPath),
+    contentType: "video/mp4",
+    cacheControl: "public, max-age=31536000, immutable",
+  });
+
+  await rm(params.outputPath, { force: true }).catch(() => undefined);
+
+  return {
+    ...params.video,
+    url: uploaded.publicUrl,
+    mediaVideoUrl: params.mediaVideoUrl,
+    mediaAudioUrl: params.mediaAudioUrl,
+    preparedLocalPath: undefined,
+    preparedLocalUrl: uploaded.publicUrl,
+    preparedAt: new Date().toISOString(),
+    preparedSource: params.source,
+    rawPayload: {
+      ...params.video.rawPayload,
+      ...params.rawPayload,
+      tenantId,
+      storageProvider: "cloudflare-r2",
+      r2Key: uploaded.key,
+      publicUrl: uploaded.publicUrl,
+      mimeType: "video/mp4",
+    },
+  };
 }
 
 function extractTikTokVideoId(url: string): string {
@@ -522,18 +589,17 @@ export async function prepareVideoForPosting(video: Video): Promise<Video> {
       });
       await rename(tempPath, outputPath);
 
-      return {
-        ...video,
-        preparedLocalPath: outputPath,
-        preparedLocalUrl: localUrl,
-        preparedAt: new Date().toISOString(),
-        preparedSource: "tiktok-api",
+      return finalizePreparedVideo({
+        video,
+        outputPath,
+        localUrl,
+        baseName,
+        source: "tiktok-api",
         rawPayload: {
-          ...video.rawPayload,
           preparedTikTokVideoId: tiktokMedia.videoId,
           preparedTikTokProvider: tiktokMedia.provider,
         },
-      };
+      });
     } catch (error) {
       tiktokError = error instanceof Error ? error.message : String(error);
     }
@@ -571,28 +637,28 @@ export async function prepareVideoForPosting(video: Video): Promise<Video> {
         outputPath,
       });
 
-      return {
-        ...video,
+      return finalizePreparedVideo({
+        video,
+        outputPath,
+        localUrl,
+        baseName,
+        source: "ffmpeg-mux",
         mediaVideoUrl: mediaUrls.mediaVideoUrl,
         mediaAudioUrl: mediaUrls.mediaAudioUrl,
-        preparedLocalPath: outputPath,
-        preparedLocalUrl: localUrl,
-        preparedAt: new Date().toISOString(),
-        preparedSource: "ffmpeg-mux",
-      };
+      });
     }
 
     await rename(videoTempPath, outputPath);
 
-    return {
-      ...video,
+    return finalizePreparedVideo({
+      video,
+      outputPath,
+      localUrl,
+      baseName,
+      source: "direct-media",
       mediaVideoUrl: mediaUrls.mediaVideoUrl,
       mediaAudioUrl: mediaUrls.mediaAudioUrl,
-      preparedLocalPath: outputPath,
-      preparedLocalUrl: localUrl,
-      preparedAt: new Date().toISOString(),
-      preparedSource: "direct-media",
-    };
+    });
   } finally {
     await rm(videoTempPath, { force: true }).catch(() => undefined);
 

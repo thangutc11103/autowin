@@ -12,6 +12,7 @@ import {
   requireAccountPermission,
   requireFeature,
 } from "@/lib/auth/access-control";
+import { getCurrentUser } from "@/lib/auth/session-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,12 +27,21 @@ interface QueuePostRequest {
 
 export async function GET(request: Request) {
   const tenantId = getTenantIdFromRequest(request);
-  const posts = await listScheduledPosts({ tenantId, limit: 100 });
+  const currentUser = await getCurrentUser(request);
+  const posts = await listScheduledPosts({
+    tenantId,
+    userId:
+      currentUser && currentUser.role !== "owner" && currentUser.role !== "admin"
+        ? currentUser.id
+        : null,
+    limit: 100,
+  });
   return NextResponse.json({ posts });
 }
 
 export async function POST(request: Request) {
   const tenantId = getTenantIdFromRequest(request);
+  const currentUser = await getCurrentUser(request);
   const body = (await request.json().catch(() => ({}))) as QueuePostRequest;
 
   const queuePermissionError = await requireFeature({
@@ -88,6 +98,7 @@ export async function POST(request: Request) {
 
   const post = await createQueuedPost({
     tenantId,
+    userId: currentUser?.id,
     video: body.video,
     caption: body.caption.trim(),
     publishWindow,

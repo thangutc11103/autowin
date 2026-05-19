@@ -10,6 +10,7 @@ import {
   type UserRole,
   type UserStatus,
 } from "@/lib/auth/access-control";
+import { hashPassword, revokeUserSessions } from "@/lib/auth/session-auth";
 import { oauthStorage } from "@/lib/oauth-storage";
 import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
@@ -65,6 +66,18 @@ function normalizeAccountPermissions(value: unknown): AccountPermissionInput[] {
     }));
 }
 
+function getPasswordHash(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0) {
+    return null;
+  }
+
+  if (value.length < 8) {
+    throw new Error("Password must be at least 8 characters");
+  }
+
+  return hashPassword(value);
+}
+
 export async function GET(request: Request) {
   const adminError = await requireAdmin(request);
   if (adminError) return adminError;
@@ -105,6 +118,16 @@ export async function POST(request: Request) {
   const role = typeof body.role === "string" ? (body.role as UserRole) : "viewer";
   const status =
     body.status === "suspended" ? ("suspended" as UserStatus) : ("active" as UserStatus);
+  let passwordHash: string | null = null;
+
+  try {
+    passwordHash = getPasswordHash(body.password);
+  } catch (error) {
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Invalid password" },
+      { status: 400 },
+    );
+  }
 
   if (!id) {
     return Response.json({ error: "User id is required" }, { status: 400 });
@@ -118,6 +141,7 @@ export async function POST(request: Request) {
     id,
     email,
     displayName,
+    passwordHash,
     status,
     tenantId,
     role,
@@ -132,4 +156,20 @@ export async function POST(request: Request) {
     tenantId,
     users,
   });
+}
+
+export async function DELETE(request: Request) {
+  const adminError = await requireAdmin(request);
+  if (adminError) return adminError;
+
+  const tenantId = getTenantIdFromRequest(request);
+  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const userId = typeof body.userId === "string" ? body.userId.trim() : "";
+
+  if (!userId) {
+    return Response.json({ error: "User id is required" }, { status: 400 });
+  }
+
+  await revokeUserSessions({ tenantId, userId });
+  return Response.json({ success: true });
 }

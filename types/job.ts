@@ -5,6 +5,7 @@ export type JobType = "hashtag" | "category" | "account" | "search";
 export interface CrawlJobData {
   id: string;
   tenantId: string;
+  userId?: string;
   batchId: string;
   platform: Platform;
   type: JobType;

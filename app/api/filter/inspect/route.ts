@@ -6,6 +6,7 @@ import {
   DEFAULT_TENANT_ID,
   getTenantIdFromRequest,
 } from "@/lib/tenant-context";
+import { getCurrentUser } from "@/lib/auth/session-auth";
 
 interface InspectJobData {
   id: string;
@@ -37,6 +38,7 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const tenantId = getTenantIdFromRequest(request);
+    const currentUser = await getCurrentUser(request);
     const batchId = searchParams.get("batchId");
     const platform = searchParams.get("platform");
 
@@ -84,6 +86,9 @@ export async function GET(request: NextRequest) {
 
     // Filter jobs nếu có batchId hoặc platform
     let filteredJobs = allJobs.filter((job) => getJobTenantId(job) === tenantId);
+    if (currentUser && currentUser.role !== "owner" && currentUser.role !== "admin") {
+      filteredJobs = filteredJobs.filter((job) => job.data.userId === currentUser.id);
+    }
     if (batchId) {
       filteredJobs = filteredJobs.filter(
         (job) => job.data.batchId === batchId,

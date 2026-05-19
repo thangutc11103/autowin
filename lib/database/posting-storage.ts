@@ -28,6 +28,7 @@ export interface QueuePostTargetInput {
 
 export interface QueuePostInput {
   tenantId?: string;
+  userId?: string;
   video: Video;
   caption: string;
   publishWindow: "now" | "schedule";
@@ -138,6 +139,7 @@ async function ensurePostingStorage(): Promise<void> {
         CREATE TABLE IF NOT EXISTS scheduled_posts (
           id TEXT PRIMARY KEY,
           tenant_id TEXT NOT NULL DEFAULT 'default',
+          user_id TEXT,
           video_id TEXT NOT NULL,
           video_title TEXT NOT NULL,
           video_url TEXT NOT NULL,
@@ -159,6 +161,11 @@ async function ensurePostingStorage(): Promise<void> {
       `);
 
       await client.query(`
+        ALTER TABLE scheduled_posts
+        ADD COLUMN IF NOT EXISTS user_id TEXT;
+      `);
+
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_scheduled_posts_status_scheduled_at
         ON scheduled_posts (status, scheduled_at);
       `);
@@ -169,9 +176,15 @@ async function ensurePostingStorage(): Promise<void> {
       `);
 
       await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_scheduled_posts_tenant_user_status
+        ON scheduled_posts (tenant_id, user_id, status, scheduled_at);
+      `);
+
+      await client.query(`
         CREATE TABLE IF NOT EXISTS post_targets (
           id TEXT PRIMARY KEY,
           tenant_id TEXT NOT NULL DEFAULT 'default',
+          user_id TEXT,
           post_id TEXT NOT NULL REFERENCES scheduled_posts(id) ON DELETE CASCADE,
           account_key TEXT NOT NULL,
           platform TEXT NOT NULL,
@@ -189,6 +202,11 @@ async function ensurePostingStorage(): Promise<void> {
       await client.query(`
         ALTER TABLE post_targets
         ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default';
+      `);
+
+      await client.query(`
+        ALTER TABLE post_targets
+        ADD COLUMN IF NOT EXISTS user_id TEXT;
       `);
 
       await client.query(`
@@ -289,6 +307,7 @@ export async function createQueuedPost(
           INSERT INTO scheduled_posts (
             id,
             tenant_id,
+            user_id,
             video_id,
             video_title,
             video_url,
@@ -300,11 +319,12 @@ export async function createQueuedPost(
             queued_at,
             video_payload
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::JSONB)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::JSONB)
         `,
         [
           postId,
           tenantId,
+          input.userId ?? null,
           input.video.id,
           input.video.title,
           input.video.preparedLocalUrl || input.video.url,
@@ -324,17 +344,19 @@ export async function createQueuedPost(
             INSERT INTO post_targets (
               id,
               tenant_id,
+              user_id,
               post_id,
               account_key,
               platform,
               account_label,
               status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
           `,
           [
             randomUUID(),
             tenantId,
+            input.userId ?? null,
             postId,
             target.accountKey,
             target.platform,
@@ -351,7 +373,12 @@ export async function createQueuedPost(
     }
   });
 
-  const [post] = await listScheduledPosts({ tenantId, limit: 1, postId });
+  const [post] = await listScheduledPosts({
+    tenantId,
+    userId: input.userId,
+    limit: 1,
+    postId,
+  });
   if (!post) {
     throw new Error("Queued post was not found after creation");
   }
@@ -361,6 +388,7 @@ export async function createQueuedPost(
 
 export async function listScheduledPosts(params?: {
   tenantId?: string;
+  userId?: string | null;
   limit?: number;
   postId?: string;
 }): Promise<ScheduledPostRecord[]> {
@@ -376,6 +404,11 @@ export async function listScheduledPosts(params?: {
       conditions.push(`scheduled_posts.id = $${values.length}`);
     }
 
+    if (params?.userId) {
+      values.push(params.userId);
+      conditions.push(`scheduled_posts.user_id = $${values.length}`);
+    }
+
     values.push(params?.limit ?? 50);
     const limitParam = values.length;
     const whereClause =
@@ -386,6 +419,7 @@ export async function listScheduledPosts(params?: {
         SELECT
           scheduled_posts.id,
           scheduled_posts.tenant_id,
+          scheduled_posts.user_id,
           scheduled_posts.video_id,
           scheduled_posts.video_title,
           scheduled_posts.video_url,

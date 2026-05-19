@@ -76,6 +76,7 @@ export async function ensureScrapeStorage(): Promise<void> {
         CREATE TABLE IF NOT EXISTS scrape_runs (
           job_id TEXT PRIMARY KEY,
           tenant_id TEXT NOT NULL DEFAULT 'default',
+          user_id TEXT,
           batch_id TEXT,
           platform TEXT NOT NULL,
           job_type TEXT NOT NULL,
@@ -96,6 +97,11 @@ export async function ensureScrapeStorage(): Promise<void> {
       `);
 
       await client.query(`
+        ALTER TABLE scrape_runs
+        ADD COLUMN IF NOT EXISTS user_id TEXT;
+      `);
+
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_scrape_runs_batch_id
         ON scrape_runs (batch_id);
       `);
@@ -103,6 +109,11 @@ export async function ensureScrapeStorage(): Promise<void> {
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_scrape_runs_tenant_batch_id
         ON scrape_runs (tenant_id, batch_id);
+      `);
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_scrape_runs_tenant_user_batch_id
+        ON scrape_runs (tenant_id, user_id, batch_id);
       `);
 
       await client.query(`
@@ -114,6 +125,7 @@ export async function ensureScrapeStorage(): Promise<void> {
         CREATE TABLE IF NOT EXISTS scraped_videos (
           id BIGSERIAL PRIMARY KEY,
           tenant_id TEXT NOT NULL DEFAULT 'default',
+          user_id TEXT,
           job_id TEXT NOT NULL REFERENCES scrape_runs(job_id) ON DELETE CASCADE,
           batch_id TEXT,
           platform TEXT NOT NULL,
@@ -138,6 +150,11 @@ export async function ensureScrapeStorage(): Promise<void> {
       `);
 
       await client.query(`
+        ALTER TABLE scraped_videos
+        ADD COLUMN IF NOT EXISTS user_id TEXT;
+      `);
+
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_scraped_videos_batch_id
         ON scraped_videos (batch_id);
       `);
@@ -145,6 +162,11 @@ export async function ensureScrapeStorage(): Promise<void> {
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_scraped_videos_tenant_batch_id
         ON scraped_videos (tenant_id, batch_id);
+      `);
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_scraped_videos_tenant_user_batch_id
+        ON scraped_videos (tenant_id, user_id, batch_id);
       `);
 
       await client.query(`
@@ -181,6 +203,7 @@ export async function saveSuccessfulScrape(params: {
           INSERT INTO scrape_runs (
             job_id,
             tenant_id,
+            user_id,
             batch_id,
             platform,
             job_type,
@@ -192,10 +215,11 @@ export async function saveSuccessfulScrape(params: {
             error_message,
             scraped_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', NULL, $10)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'completed', NULL, $11)
           ON CONFLICT (job_id)
           DO UPDATE SET
             tenant_id = EXCLUDED.tenant_id,
+            user_id = EXCLUDED.user_id,
             batch_id = EXCLUDED.batch_id,
             platform = EXCLUDED.platform,
             job_type = EXCLUDED.job_type,
@@ -210,6 +234,7 @@ export async function saveSuccessfulScrape(params: {
         [
           jobId,
           tenantId,
+          params.jobData.userId ?? null,
           params.jobData.batchId ?? null,
           params.jobData.platform,
           params.jobData.type,
@@ -232,13 +257,14 @@ export async function saveSuccessfulScrape(params: {
           [];
 
         params.result.videos.forEach((video, index) => {
-          const offset = index * 12;
+          const offset = index * 13;
           placeholders.push(
-            `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12})`,
+            `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13})`,
           );
 
           values.push(
             tenantId,
+            params.jobData.userId ?? null,
             jobId,
             params.jobData.batchId ?? null,
             params.jobData.platform,
@@ -261,6 +287,7 @@ export async function saveSuccessfulScrape(params: {
           `
             INSERT INTO scraped_videos (
               tenant_id,
+              user_id,
               job_id,
               batch_id,
               platform,
@@ -277,6 +304,7 @@ export async function saveSuccessfulScrape(params: {
             )
             SELECT
               entry.tenant_id,
+              entry.user_id,
               entry.job_id,
               entry.batch_id,
               entry.platform,
@@ -294,6 +322,7 @@ export async function saveSuccessfulScrape(params: {
               VALUES ${placeholders.join(", ")}
             ) AS entry (
               tenant_id,
+              user_id,
               job_id,
               batch_id,
               platform,
@@ -341,6 +370,7 @@ export async function saveFailedScrape(params: {
         INSERT INTO scrape_runs (
           job_id,
           tenant_id,
+          user_id,
           batch_id,
           platform,
           job_type,
@@ -352,10 +382,11 @@ export async function saveFailedScrape(params: {
           error_message,
           scraped_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 'failed', $9, NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 'failed', $10, NOW())
         ON CONFLICT (job_id)
         DO UPDATE SET
           tenant_id = EXCLUDED.tenant_id,
+          user_id = EXCLUDED.user_id,
           batch_id = EXCLUDED.batch_id,
           platform = EXCLUDED.platform,
           job_type = EXCLUDED.job_type,
@@ -370,6 +401,7 @@ export async function saveFailedScrape(params: {
       [
         jobId,
         tenantId,
+        params.jobData.userId ?? null,
         params.jobData.batchId ?? null,
         params.jobData.platform,
         params.jobData.type,

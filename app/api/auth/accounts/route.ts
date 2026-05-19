@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireFeature } from "@/lib/auth/access-control";
 import { oauthStorage } from "@/lib/oauth-storage";
 import { getTenantIdFromRequest } from "@/lib/tenant-context";
+import { getCurrentUser } from "@/lib/auth/session-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,7 +23,14 @@ export async function GET(request: Request) {
   });
   if (permissionError) return permissionError;
 
-  const storedAccounts = await oauthStorage.getStoredAccounts({ tenantId });
+  const currentUser = await getCurrentUser(request);
+  const storedAccounts = await oauthStorage.getStoredAccounts({
+    tenantId,
+    userId:
+      currentUser && currentUser.role !== "owner" && currentUser.role !== "admin"
+        ? currentUser.id
+        : null,
+  });
   const debugEvents = await oauthStorage.getDebugEvents(tenantId);
   const accounts = storedAccounts.map((account) => ({
     key: account.key,

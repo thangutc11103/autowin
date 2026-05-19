@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { PLATFORM_FILTER_CONFIGS } from '@/config/filter-config';
 import { useFilterStore } from '@/store/filter.store';
+import { useLanguageStore, type AppLanguage } from '@/store/language.store';
 import { useVideoStore } from '@/store/video.store';
 import type { PlatformFilterValues } from '@/types/filter';
 import type { DecomposeFilterRequest, JobSubmissionResult } from '@/types/job';
@@ -48,6 +49,101 @@ const PLATFORM_ACTIVE_COLORS: Record<Platform, string> = {
     youtube: 'bg-red-50 border-red-300 text-red-700',
 };
 
+const FILTER_COPY = {
+    vi: {
+        platformTitle: 'Nền tảng',
+        filterSection: 'Bộ lọc',
+        fields: {
+            search: 'Từ khóa tìm kiếm',
+            danh_muc: 'Danh mục',
+            hashtag: 'Hashtag',
+            ten_kenh_tai_khoan: 'Tài khoản/Kênh',
+            limit: 'Số video tối đa',
+        },
+        clear: 'Xóa',
+        find: 'Tìm',
+        submitting: 'Đang gửi...',
+        history: 'Lịch sử',
+        keep7d: 'Giữ 7 ngày',
+        keep30d: 'Giữ 30 ngày',
+        clearHistory: 'Xóa lịch sử',
+        messages: {
+            pasteCookies: 'Dán Instagram cookies trước.',
+            checkingCookies: 'Đang kiểm tra cookies...',
+            cookiesVerified: 'Cookies đã xác minh. Có thể dùng hashtag.',
+            cookiesFailed: 'Kiểm tra cookie thất bại',
+            queued: 'Đã đưa job vào hàng đợi...',
+            finding: 'Worker đang tìm video...',
+            waiting: 'Đang chờ worker...',
+            completed: 'Worker hoàn tất. Đang cập nhật video...',
+            updated: 'Hoàn tất. Danh sách video đã cập nhật.',
+            submitted: (count: number) => `Đã gửi ${count} job.`,
+            cleared: 'Đã xóa bộ lọc.',
+            deleted: (count: number) => `Đã xóa ${count} video.`,
+            verifyInstagram: 'Xác minh Instagram cookies trước khi tìm hashtag.',
+        },
+    },
+    en: {
+        platformTitle: 'Platform',
+        filterSection: 'Filters',
+        fields: {
+            search: 'Search keyword',
+            danh_muc: 'Category',
+            hashtag: 'Hashtag',
+            ten_kenh_tai_khoan: 'Account/Channel',
+            limit: 'Max videos',
+        },
+        clear: 'Clear',
+        find: 'Find',
+        submitting: 'Submitting...',
+        history: 'History',
+        keep7d: 'Keep 7d',
+        keep30d: 'Keep 30d',
+        clearHistory: 'Clear history',
+        messages: {
+            pasteCookies: 'Paste Instagram cookies first.',
+            checkingCookies: 'Checking cookies...',
+            cookiesVerified: 'Cookies verified. Hashtag input unlocked.',
+            cookiesFailed: 'Cookie check failed',
+            queued: 'Queued worker job...',
+            finding: 'Worker is finding videos...',
+            waiting: 'Waiting for worker...',
+            completed: 'Worker completed. Updating videos...',
+            updated: 'Completed. Video list updated.',
+            submitted: (count: number) => `Submitted ${count} job(s).`,
+            cleared: 'Cleared filters.',
+            deleted: (count: number) => `Deleted ${count} videos.`,
+            verifyInstagram: 'Verify Instagram cookies before using hashtag search.',
+        },
+    },
+} satisfies Record<AppLanguage, {
+    platformTitle: string;
+    filterSection: string;
+    fields: Record<string, string>;
+    clear: string;
+    find: string;
+    submitting: string;
+    history: string;
+    keep7d: string;
+    keep30d: string;
+    clearHistory: string;
+    messages: Record<string, string | ((count: number) => string)>;
+}>;
+
+function getFieldLabel(language: AppLanguage, key: string, fallback: string) {
+    const fields = FILTER_COPY[language].fields as Record<string, string>;
+    return fields[key] || fallback;
+}
+
+function getMessage(
+    language: AppLanguage,
+    key: keyof typeof FILTER_COPY.en.messages,
+    count?: number,
+) {
+    const value = FILTER_COPY[language].messages[key];
+    return typeof value === 'function' ? value(count || 0) : value;
+}
+
 function FilterSection({ label, children }: { label: string; children: React.ReactNode }) {
     return (
         <div className="border-b border-gray-100 last:border-0">
@@ -61,6 +157,8 @@ function FilterSection({ label, children }: { label: string; children: React.Rea
 }
 
 export default function FilterPanel() {
+    const language = useLanguageStore((state) => state.language);
+    const text = FILTER_COPY[language];
     const {
         activePlatform,
         filters,
@@ -147,14 +245,14 @@ export default function FilterPanel() {
         if (!instagramCookies.trim()) {
             setInstagramCookieStatus({
                 type: 'error',
-                text: 'Paste Instagram cookies first.',
+                text: getMessage(language, 'pasteCookies'),
             });
             return;
         }
 
         setInstagramCookieStatus({
             type: 'checking',
-            text: 'Checking cookies...',
+            text: getMessage(language, 'checkingCookies'),
         });
 
         try {
@@ -176,12 +274,12 @@ export default function FilterPanel() {
 
             setInstagramCookieStatus({
                 type: 'valid',
-                text: 'Cookies verified. Hashtag input unlocked.',
+                text: getMessage(language, 'cookiesVerified'),
             });
         } catch (error) {
             setInstagramCookieStatus({
                 type: 'error',
-                text: error instanceof Error ? error.message : 'Cookie check failed',
+                text: error instanceof Error ? error.message : getMessage(language, 'cookiesFailed'),
             });
         }
     };
@@ -231,7 +329,7 @@ export default function FilterPanel() {
     };
 
     const waitForBatchCompletion = async (platform: Platform, batchId: string) => {
-        setWorkerMessage('Queued worker job...');
+        setWorkerMessage(getMessage(language, 'queued'));
 
         for (let attempt = 0; attempt < 60; attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -250,20 +348,20 @@ export default function FilterPanel() {
             }
 
             if (states.some((state) => state === 'active')) {
-                setWorkerMessage('Worker is finding videos...');
+                setWorkerMessage(getMessage(language, 'finding'));
                 continue;
             }
 
             if (states.some((state) => state === 'waiting' || state === 'delayed')) {
-                setWorkerMessage('Waiting for worker...');
+                setWorkerMessage(getMessage(language, 'waiting'));
                 continue;
             }
 
             if (states.length > 0 && states.every((state) => state === 'completed')) {
-                setWorkerMessage('Worker completed. Updating videos...');
+                setWorkerMessage(getMessage(language, 'completed'));
                 setCurrentBatchId(platform, batchId);
                 await reloadVideosForBatch(platform, batchId);
-                setWorkerMessage('Completed. Video list updated.');
+                setWorkerMessage(getMessage(language, 'updated'));
                 hideJobMessagesSoon();
                 return;
             }
@@ -305,7 +403,7 @@ export default function FilterPanel() {
 
             setSubmitMessage({
                 type: 'success',
-                text: `Submitted ${result.totalJobs} job(s).`,
+                text: getMessage(language, 'submitted', result.totalJobs),
             });
             setBatchIds((prev) => ({
                 ...prev,
@@ -369,7 +467,7 @@ export default function FilterPanel() {
         ) {
             setSubmitMessage({
                 type: 'error',
-                text: 'Verify Instagram cookies before using hashtag search.',
+                text: getMessage(language, 'verifyInstagram'),
             });
             return;
         }
@@ -421,7 +519,7 @@ export default function FilterPanel() {
 
             setSubmitMessage({
                 type: 'success',
-                text: 'Cleared filters.',
+                text: getMessage(language, 'cleared'),
             });
             setWorkerMessage(null);
             hideJobMessagesSoon();
@@ -463,7 +561,7 @@ export default function FilterPanel() {
 
             setSubmitMessage({
                 type: 'success',
-                text: result.message || `Deleted ${result.deletedVideos ?? 0} videos.`,
+                text: result.message || getMessage(language, 'deleted', result.deletedVideos ?? 0),
             });
             setWorkerMessage(null);
             hideJobMessagesSoon();
@@ -479,7 +577,7 @@ export default function FilterPanel() {
     return (
         <div className="flex h-full flex-col border-r border-gray-200 bg-white">
             <div className="border-b border-gray-100 px-4 py-4">
-                <h2 className="text-sm font-bold uppercase tracking-wide text-gray-900">Platform</h2>
+                <h2 className="text-sm font-bold uppercase tracking-wide text-gray-900">{text.platformTitle}</h2>
             </div>
 
             {submitMessage && (
@@ -534,7 +632,7 @@ export default function FilterPanel() {
                             {isExpanded && (
                                 <div className="mx-2 mb-2 mt-1 rounded-lg bg-gray-50 px-3 py-2">
                                     {config.sections.map((section) => (
-                                        <FilterSection key={section.label} label={section.label}>
+                                        <FilterSection key={section.label} label={text.filterSection}>
                                             {section.fields.map((field) => {
                                                 const rawVal = platformFilters[field.key as keyof PlatformFilterValues];
 
@@ -546,7 +644,7 @@ export default function FilterPanel() {
                                                     return (
                                                         <label key={field.key} className="mb-3 block">
                                                             <span className="mb-1 block text-xs font-medium text-gray-600">
-                                                                {field.label}
+                                                                {getFieldLabel(language, field.key, field.label)}
                                                             </span>
                                                             <div className="mb-1 flex justify-between text-xs text-gray-400">
                                                                 <span>{field.min ?? 0}</span>
@@ -588,7 +686,7 @@ export default function FilterPanel() {
                                                 return (
                                                     <div key={field.key} className="mb-2 block">
                                                         <span className="mb-1 block text-xs font-medium text-gray-600">
-                                                            {field.label}
+                                                            {getFieldLabel(language, field.key, field.label)}
                                                         </span>
                                                         <div className={`relative ${isLockedInstagramHashtag ? 'min-h-20' : ''}`}>
                                                             <input
@@ -647,38 +745,38 @@ export default function FilterPanel() {
                                             onClick={() => void handleClear(config.platform)}
                                             className="cursor-pointer rounded-lg bg-gray-200 px-4 py-2 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-300"
                                         >
-                                            Clear
+                                            {text.clear}
                                         </button>
                                         <button
                                             onClick={() => void handleFind(config.platform)}
                                             disabled={isSubmitting}
                                             className="cursor-pointer rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:bg-blue-400"
                                         >
-                                            {isSubmitting ? 'Submitting...' : 'Find'}
+                                            {isSubmitting ? text.submitting : text.find}
                                         </button>
                                     </div>
                                     <div className="mt-3 border-t border-gray-200 pt-3">
                                         <div className="mb-2 text-xs font-semibold text-gray-500">
-                                            History
+                                            {text.history}
                                         </div>
                                         <div className="grid grid-cols-3 gap-2">
                                             <button
                                                 onClick={() => void cleanupHistory(config.platform, 'retention', 7)}
                                                 className="rounded-md bg-white px-2 py-1.5 text-xs font-medium text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100"
                                             >
-                                                Keep 7d
+                                                {text.keep7d}
                                             </button>
                                             <button
                                                 onClick={() => void cleanupHistory(config.platform, 'retention', 30)}
                                                 className="rounded-md bg-white px-2 py-1.5 text-xs font-medium text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100"
                                             >
-                                                Keep 30d
+                                                {text.keep30d}
                                             </button>
                                             <button
                                                 onClick={() => void cleanupHistory(config.platform, 'clear-history')}
                                                 className="rounded-md bg-red-50 px-2 py-1.5 text-xs font-semibold text-red-700 ring-1 ring-red-200 hover:bg-red-100"
                                             >
-                                                Clear history
+                                                {text.clearHistory}
                                             </button>
                                         </div>
                                     </div>

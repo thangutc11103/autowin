@@ -11,6 +11,7 @@ import type { Platform, Video } from "@/types/video";
 import { createRateLimiter } from "@/lib/rate-limit";
 import { ensureScrapeStorage } from "@/lib/database/scrape-storage";
 import { getTenantIdFromRequest } from "@/lib/tenant-context";
+import { getCurrentUser } from "@/lib/auth/session-auth";
 
 export const runtime = "nodejs";
 
@@ -88,6 +89,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const tenantId = getTenantIdFromRequest(request);
+    const currentUser = await getCurrentUser(request);
     await ensureScrapeStorage();
 
     const batchId = searchParams.get("batchId");
@@ -105,6 +107,11 @@ export async function GET(request: NextRequest) {
 
     const conditions: string[] = ["tenant_id = $1"];
     const values: Array<string | number> = [tenantId];
+
+    if (currentUser && currentUser.role !== "owner" && currentUser.role !== "admin") {
+      values.push(currentUser.id);
+      conditions.push(`user_id = $${values.length}`);
+    }
 
     if (batchId) {
       values.push(batchId);
