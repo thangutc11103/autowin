@@ -8,13 +8,27 @@ export interface PublishJobData {
   targetId: string;
 }
 
+export interface MediaJobData {
+  tenantId: string;
+  mediaAssetId?: string;
+  sourceUrl: string;
+  action: "prepare" | "thumbnail" | "metadata";
+}
+
+export const SCRAPE_QUEUE_NAME =
+  process.env.SCRAPE_QUEUE_NAME || process.env.CRAWL_QUEUE_NAME || "scrape-queue";
+export const POST_QUEUE_NAME =
+  process.env.POST_QUEUE_NAME || process.env.PUBLISH_QUEUE_NAME || "post-queue";
+export const MEDIA_QUEUE_NAME = process.env.MEDIA_QUEUE_NAME || "media-queue";
+
 let crawlQueue: Queue<CrawlJobData> | null = null;
 let publishQueue: Queue<PublishJobData> | null = null;
+let mediaQueue: Queue<MediaJobData> | null = null;
 
 export function getCrawlQueue(): Queue<CrawlJobData> {
   if (!crawlQueue) {
     const connection = getRedis();
-    crawlQueue = new Queue<CrawlJobData>("crawl-tasks", {
+    crawlQueue = new Queue<CrawlJobData>(SCRAPE_QUEUE_NAME, {
       connection,
       defaultJobOptions: {
         attempts: 3,
@@ -65,7 +79,7 @@ export async function addBulkCrawlJobs(
 export function getPublishQueue(): Queue<PublishJobData> {
   if (!publishQueue) {
     const connection = getRedis();
-    publishQueue = new Queue<PublishJobData>("publish-tasks", {
+    publishQueue = new Queue<PublishJobData>(POST_QUEUE_NAME, {
       connection,
       defaultJobOptions: {
         attempts: 3,
@@ -85,6 +99,31 @@ export function getPublishQueue(): Queue<PublishJobData> {
   }
 
   return publishQueue;
+}
+
+export function getMediaQueue(): Queue<MediaJobData> {
+  if (!mediaQueue) {
+    const connection = getRedis();
+    mediaQueue = new Queue<MediaJobData>(MEDIA_QUEUE_NAME, {
+      connection,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: "exponential",
+          delay: 5000,
+        },
+        removeOnComplete: {
+          age: 24 * 3600,
+          count: 1000,
+        },
+        removeOnFail: {
+          age: 7 * 24 * 3600,
+        },
+      },
+    });
+  }
+
+  return mediaQueue;
 }
 
 export async function addPublishJob(params: {
@@ -119,5 +158,10 @@ export async function closeQueue(): Promise<void> {
   if (publishQueue) {
     await publishQueue.close();
     publishQueue = null;
+  }
+
+  if (mediaQueue) {
+    await mediaQueue.close();
+    mediaQueue = null;
   }
 }

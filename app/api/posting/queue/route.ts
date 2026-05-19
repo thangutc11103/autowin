@@ -7,6 +7,11 @@ import {
 import { addPublishJob } from "@/lib/queue";
 import type { Video } from "@/types/video";
 import { getTenantIdFromRequest } from "@/lib/tenant-context";
+import {
+  getPublishFeatureKey,
+  requireAccountPermission,
+  requireFeature,
+} from "@/lib/auth/access-control";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +34,13 @@ export async function POST(request: Request) {
   const tenantId = getTenantIdFromRequest(request);
   const body = (await request.json().catch(() => ({}))) as QueuePostRequest;
 
+  const queuePermissionError = await requireFeature({
+    request,
+    tenantId,
+    featureKey: "queue_post",
+  });
+  if (queuePermissionError) return queuePermissionError;
+
   if (!body.video) {
     return NextResponse.json({ error: "Missing video" }, { status: 400 });
   }
@@ -42,6 +54,23 @@ export async function POST(request: Request) {
       { error: "Select at least one publishing account" },
       { status: 400 },
     );
+  }
+
+  for (const target of body.accountTargets) {
+    const publishPermissionError = await requireFeature({
+      request,
+      tenantId,
+      featureKey: getPublishFeatureKey(target.platform),
+    });
+    if (publishPermissionError) return publishPermissionError;
+
+    const accountPermissionError = await requireAccountPermission({
+      request,
+      tenantId,
+      accountKey: target.accountKey,
+      action: "post",
+    });
+    if (accountPermissionError) return accountPermissionError;
   }
 
   const publishWindow = body.publishWindow === "now" ? "now" : "schedule";

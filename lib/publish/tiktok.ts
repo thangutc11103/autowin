@@ -1,6 +1,8 @@
 import { createReadStream } from "fs";
-import { stat } from "fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "fs/promises";
+import { tmpdir } from "os";
 import path from "path";
+import { randomUUID } from "crypto";
 import { oauthStorage } from "@/lib/oauth-storage";
 import type { PublishTargetContext } from "@/lib/database/posting-storage";
 
@@ -115,13 +117,33 @@ function getContentType(filePath: string): string {
   return "video/mp4";
 }
 
-function resolveLocalVideoPath(context: PublishTargetContext): string {
+async function downloadRemoteVideoToTemp(url: string): Promise<string> {
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Failed to download remote video ${url}: ${response.status}`);
+  }
+
+  const parsed = new URL(url);
+  const ext = path.extname(parsed.pathname) || ".mp4";
+  const dir = await mkdtemp(path.join(tmpdir(), "find-app-publish-"));
+  const filePath = path.join(dir, `${randomUUID()}${ext}`);
+  await writeFile(filePath, Buffer.from(await response.arrayBuffer()));
+
+  return filePath;
+}
+
+async function resolveVideoFile(context: PublishTargetContext): Promise<{
+  filePath: string;
+  cleanup?: () => Promise<void>;
+}> {
   const preparedLocalPath = context.videoPayload?.preparedLocalPath;
 
   if (preparedLocalPath) {
-    return path.isAbsolute(preparedLocalPath)
+    const filePath = path.isAbsolute(preparedLocalPath)
       ? preparedLocalPath
       : path.join(process.cwd(), preparedLocalPath);
+    return { filePath };
   }
 
   const url = context.videoUrl;
@@ -129,12 +151,18 @@ function resolveLocalVideoPath(context: PublishTargetContext): string {
   if (/^https?:\/\//i.test(url)) {
     const parsed = new URL(url);
     if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
-      return path.join(process.cwd(), "public", parsed.pathname);
+      return { filePath: path.join(process.cwd(), "public", parsed.pathname) };
     }
+
+    const filePath = await downloadRemoteVideoToTemp(url);
+    return {
+      filePath,
+      cleanup: () => rm(path.dirname(filePath), { recursive: true, force: true }),
+    };
   }
 
   if (url.startsWith("/")) {
-    return path.join(process.cwd(), "public", url);
+    return { filePath: path.join(process.cwd(), "public", url) };
   }
 
   throw new Error(
@@ -359,47 +387,54 @@ export async function publishTikTokVideo(
     );
   }
 
-  const filePath = resolveLocalVideoPath(context);
-  const fileStat = await stat(filePath);
-  const videoSize = fileStat.size;
+  const resolvedFile = await resolveVideoFile(context);
 
-  if (videoSize <= 0) {
-    throw new Error(`TikTok video file is empty: ${filePath}`);
-  }
+  try {
+    const fileStat = await stat(resolvedFile.filePath);
+    const videoSize = fileStat.size;
 
-  const chunkSize = chooseChunkSize(videoSize);
-  const totalChunkCount = Math.max(1, Math.floor(videoSize / chunkSize));
+    if (videoSize <= 0) {
+      throw new Error(`TikTok video file is empty: ${resolvedFile.filePath}`);
+    }
 
-  if (chunkSize < MIN_CHUNK_SIZE && videoSize >= MIN_CHUNK_SIZE) {
-    throw new Error("TikTok chunk size is below the 5MB minimum.");
-  }
+    const chunkSize = chooseChunkSize(videoSize);
+    const totalChunkCount = Math.max(1, Math.ceil(videoSize / chunkSize));
 
-  const creatorInfo =
-    mode === "direct" ? await queryCreatorInfo(account.accessToken) : undefined;
-  const init = await initializeUpload({
-    accessToken: account.accessToken,
-    context,
-    creatorInfo,
-    mode,
-    videoSize,
-    chunkSize,
-    totalChunkCount,
-  });
-  const uploadStatus = await uploadVideoFile({
-    uploadUrl: init.data?.upload_url || "",
-    filePath,
-    videoSize,
-    chunkSize,
-    totalChunkCount,
-  });
+    if (chunkSize < MIN_CHUNK_SIZE && videoSize >= MIN_CHUNK_SIZE) {
+      throw new Error("TikTok chunk size is below the 5MB minimum.");
+    }
 
-  return {
-    platformPostId: init.data?.publish_id || "",
-    response: {
+    const creatorInfo =
+      mode === "direct" ? await queryCreatorInfo(account.accessToken) : undefined;
+    const init = await initializeUpload({
+      accessToken: account.accessToken,
+      context,
       creatorInfo,
-      init,
-      uploadStatus,
       mode,
-    },
-  };
+      videoSize,
+      chunkSize,
+      totalChunkCount,
+    });
+    const uploadStatus = await uploadVideoFile({
+      uploadUrl: init.data?.upload_url || "",
+      filePath: resolvedFile.filePath,
+      videoSize,
+      chunkSize,
+      totalChunkCount,
+    });
+
+    return {
+      platformPostId: init.data?.publish_id || "",
+      response: {
+        creatorInfo,
+        init,
+        uploadStatus,
+        mode,
+      },
+    };
+  } finally {
+    if (resolvedFile.cleanup) {
+      await resolvedFile.cleanup().catch(() => undefined);
+    }
+  }
 }

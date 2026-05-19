@@ -2,6 +2,8 @@ import { randomUUID } from "crypto";
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
+import { requireFeature } from "@/lib/auth/access-control";
+import { isR2Configured, uploadR2Object } from "@/lib/storage/r2";
 import type { Platform, Video } from "@/types/video";
 
 export const runtime = "nodejs";
@@ -27,6 +29,13 @@ function sanitizeTitle(fileName: string) {
   return fileName.replace(/\.[^.]+$/, "").trim() || "Uploaded video";
 }
 
+function getTenantId(formData: FormData): string {
+  const tenantId = formData.get("tenantId");
+  return typeof tenantId === "string" && tenantId.trim()
+    ? tenantId.trim()
+    : process.env.DEFAULT_TENANT_ID || "default";
+}
+
 function isPlatform(value: unknown): value is Platform {
   return (
     value === "tiktok" ||
@@ -41,6 +50,15 @@ export async function POST(request: Request) {
   const formData = await request.formData();
   const files = formData.getAll("files").filter((item): item is File => item instanceof File);
   const rawMetadata = formData.get("metadata");
+  const tenantId = getTenantId(formData);
+  const permissionError = await requireFeature({
+    request,
+    tenantId,
+    featureKey: "upload_media",
+  });
+  if (permissionError) return permissionError;
+
+  const useR2 = isR2Configured();
   let metadata: unknown[] = [];
 
   if (typeof rawMetadata === "string" && rawMetadata.trim()) {
@@ -66,7 +84,9 @@ export async function POST(request: Request) {
     );
   }
 
-  await mkdir(UPLOAD_DIR, { recursive: true });
+  if (!useR2) {
+    await mkdir(UPLOAD_DIR, { recursive: true });
+  }
 
   const uploadedVideos: Video[] = [];
 
@@ -103,10 +123,27 @@ export async function POST(request: Request) {
         : sanitizeTitle(file.name);
     const id = `upload-${randomUUID()}`;
     const storedName = `${id}${extension}`;
-    const diskPath = path.join(UPLOAD_DIR, storedName);
-    const publicUrl = `${PUBLIC_UPLOAD_PATH}/${storedName}`;
+    const objectKey = `tenants/${tenantId}/uploads/ready/${storedName}`;
+    let diskPath: string | undefined;
+    let publicUrl: string;
+    let r2Key: string | undefined;
 
-    await writeFile(diskPath, Buffer.from(await file.arrayBuffer()));
+    const fileBuffer = Buffer.from(await file.arrayBuffer());
+
+    if (useR2) {
+      const uploaded = await uploadR2Object({
+        key: objectKey,
+        body: fileBuffer,
+        contentType: file.type || "application/octet-stream",
+        cacheControl: "public, max-age=31536000, immutable",
+      });
+      publicUrl = uploaded.publicUrl;
+      r2Key = uploaded.key;
+    } else {
+      diskPath = path.join(UPLOAD_DIR, storedName);
+      publicUrl = `${PUBLIC_UPLOAD_PATH}/${storedName}`;
+      await writeFile(diskPath, fileBuffer);
+    }
 
     uploadedVideos.push({
       id,
@@ -120,9 +157,15 @@ export async function POST(request: Request) {
       preparedAt: new Date().toISOString(),
       preparedSource: "direct-media",
       rawPayload: {
+        tenantId,
+        storageProvider: useR2 ? "cloudflare-r2" : "local",
+        r2Key,
+        publicUrl,
         uploadFileName: file.name,
         uploadFileSize: file.size,
         uploadFileType: file.type,
+        mimeType: file.type,
+        sizeBytes: file.size,
       },
     });
   }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireFeature } from "@/lib/auth/access-control";
 import { oauthStorage } from "@/lib/oauth-storage";
 import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
@@ -14,6 +15,13 @@ function maskToken(token?: string) {
 
 export async function GET(request: Request) {
   const tenantId = getTenantIdFromRequest(request);
+  const permissionError = await requireFeature({
+    request,
+    tenantId,
+    featureKey: "manage_accounts",
+  });
+  if (permissionError) return permissionError;
+
   const storedAccounts = await oauthStorage.getStoredAccounts({ tenantId });
   const debugEvents = await oauthStorage.getDebugEvents(tenantId);
   const accounts = storedAccounts.map((account) => ({
@@ -47,6 +55,13 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   const tenantId = getTenantIdFromRequest(request);
+  const permissionError = await requireFeature({
+    request,
+    tenantId,
+    featureKey: "manage_accounts",
+  });
+  if (permissionError) return permissionError;
+
   const body = (await request.json()) as {
     key?: string;
     label?: string | null;
@@ -64,6 +79,13 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   const tenantId = getTenantIdFromRequest(request);
+  const permissionError = await requireFeature({
+    request,
+    tenantId,
+    featureKey: "manage_accounts",
+  });
+  if (permissionError) return permissionError;
+
   const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
 

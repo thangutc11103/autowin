@@ -11,7 +11,11 @@ dotenv.config({ path: ".env.local" });
 
 import { QueueEvents, UnrecoverableError, Worker } from "bullmq";
 import { getRedis } from "@/lib/redis";
-import type { PublishJobData } from "@/lib/queue";
+import {
+  POST_QUEUE_NAME,
+  SCRAPE_QUEUE_NAME,
+  type PublishJobData,
+} from "@/lib/queue";
 import { ScraperFactory } from "@/lib/scrapers/scraper-factory";
 import {
   saveSuccessfulScrape,
@@ -37,6 +41,22 @@ const MEDIA_WARMUP_CONCURRENCY = Math.max(
   1,
   Number(process.env.MEDIA_RESOLVE_WARMUP_CONCURRENCY || 2),
 );
+const SCRAPE_WORKER_CONCURRENCY = Math.max(
+  1,
+  Number(process.env.SCRAPE_WORKER_CONCURRENCY || 2),
+);
+const POST_WORKER_CONCURRENCY = Math.max(
+  1,
+  Number(process.env.POST_WORKER_CONCURRENCY || 1),
+);
+const SCRAPE_JOB_DELAY_MS = Math.max(
+  0,
+  Number(process.env.SCRAPE_JOB_DELAY_MS || 1000),
+);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function isUnrecoverablePublishError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -125,7 +145,7 @@ function setupWorker() {
   const connection = getRedis();
 
   const worker = new Worker<CrawlJobData>(
-    "crawl-tasks",
+    SCRAPE_QUEUE_NAME,
     async (job) => {
       const { tenantId, platform, type, value, targetUrl, limit } = job.data;
 
@@ -137,6 +157,10 @@ function setupWorker() {
       console.log(`${"=".repeat(60)}`);
 
       try {
+        if (SCRAPE_JOB_DELAY_MS > 0) {
+          await sleep(SCRAPE_JOB_DELAY_MS);
+        }
+
         // 25% - Validation & Setup
         await job.updateProgress(25);
         console.log(`[JOB ${job.id}] ✓ Setup complete`);
@@ -307,8 +331,7 @@ function setupWorker() {
     },
     {
       connection,
-      concurrency: 5, // 5 jobs chạy song song
-      autorun: false,
+      concurrency: SCRAPE_WORKER_CONCURRENCY,
     },
   );
 
@@ -340,7 +363,7 @@ function setupPublishWorker() {
   const connection = getRedis();
 
   const worker = new Worker<PublishJobData>(
-    "publish-tasks",
+    POST_QUEUE_NAME,
     async (job) => {
       const { tenantId, postId, targetId } = job.data;
 
@@ -428,8 +451,7 @@ function setupPublishWorker() {
     },
     {
       connection,
-      concurrency: 3,
-      autorun: false,
+      concurrency: POST_WORKER_CONCURRENCY,
     },
   );
 
@@ -457,8 +479,8 @@ function setupPublishWorker() {
  */
 function setupQueueEvents() {
   const connection = getRedis();
-  const queueEvents = new QueueEvents("crawl-tasks", { connection });
-  const publishQueueEvents = new QueueEvents("publish-tasks", { connection });
+  const queueEvents = new QueueEvents(SCRAPE_QUEUE_NAME, { connection });
+  const publishQueueEvents = new QueueEvents(POST_QUEUE_NAME, { connection });
 
   queueEvents.on("added", (data) => {
     console.log(`[QUEUE] Job added: ${data.jobId}`);
@@ -512,14 +534,6 @@ async function start() {
     const worker = setupWorker();
     const publishWorker = setupPublishWorker();
     const { queueEvents, publishQueueEvents } = setupQueueEvents();
-
-    // Start workers concurrently. Worker.run() keeps running until closed.
-    void worker.run().catch((error) => {
-      console.error("[WORKER] Crawl worker stopped unexpectedly:", error);
-    });
-    void publishWorker.run().catch((error) => {
-      console.error("[WORKER] Publish worker stopped unexpectedly:", error);
-    });
 
     // Graceful shutdown
     process.on("SIGTERM", async () => {

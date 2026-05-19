@@ -1,4 +1,6 @@
 import { prepareVideoForPosting } from "@/lib/media/local-media-preparer";
+import { requireFeature } from "@/lib/auth/access-control";
+import { getTenantIdFromRequest } from "@/lib/tenant-context";
 import type { Video } from "@/types/video";
 import type { NextRequest } from "next/server";
 import { rm } from "fs/promises";
@@ -17,6 +19,14 @@ interface PreparePostingFailure {
 
 export async function POST(request: NextRequest) {
   try {
+    const tenantId = getTenantIdFromRequest(request);
+    const permissionError = await requireFeature({
+      request,
+      tenantId,
+      featureKey: "upload_media",
+    });
+    if (permissionError) return permissionError;
+
     const body = (await request.json().catch(() => ({}))) as PreparePostingRequest;
     const videos = Array.isArray(body.videos) ? body.videos : [];
 

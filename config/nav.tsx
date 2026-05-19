@@ -1,7 +1,8 @@
 export const navItems = [
-  { href: '/discover', label: { vi: 'Khám phá', en: 'Discover' }, icon: '🔍' },
-  { href: '/selected', label: { vi: 'Đã chọn', en: 'Selected' }, icon: '✅' },
-  { href: '/queue', label: { vi: 'Hàng đợi', en: 'Queue' }, icon: '📋' },
-  { href: '/accounts', label: { vi: 'Tài khoản', en: 'Accounts' }, icon: '🔐' },
-  { href: '/automation', label: { vi: 'Tự động', en: 'Automation' }, icon: '⚡' },
+  { href: "/discover", label: { vi: "Kham pha", en: "Discover" }, icon: "S" },
+  { href: "/selected", label: { vi: "Da chon", en: "Selected" }, icon: "C" },
+  { href: "/queue", label: { vi: "Hang doi", en: "Queue" }, icon: "Q" },
+  { href: "/accounts", label: { vi: "Tai khoan", en: "Accounts" }, icon: "A" },
+  { href: "/automation", label: { vi: "Tu dong", en: "Automation" }, icon: "P" },
+  { href: "/admin", label: { vi: "Admin", en: "Admin" }, icon: "M" },
 ];

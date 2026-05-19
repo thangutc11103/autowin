@@ -20,6 +20,7 @@ function shouldUseSsl(connectionString: string): boolean {
     const url = new URL(connectionString);
     return (
       url.hostname.endsWith(".supabase.co") ||
+      url.hostname.endsWith(".neon.tech") ||
       url.searchParams.get("sslmode") === "require"
     );
   } catch {
@@ -96,4 +97,3 @@ export async function ensureTenant(tenantId: string, name?: string) {
 
   return id;
 }
-

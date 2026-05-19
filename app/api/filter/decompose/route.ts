@@ -6,6 +6,7 @@ import type {
   JobType,
 } from "@/types/job";
 import type { NextRequest } from "next/server";
+import { getScrapeFeatureKey, requireFeature } from "@/lib/auth/access-control";
 import { createRateLimiter } from "@/lib/rate-limit";
 import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
@@ -162,6 +163,13 @@ export async function POST(request: NextRequest) {
     if (!body?.platform) {
       return Response.json({ error: "Platform is required" }, { status: 400 });
     }
+
+    const permissionError = await requireFeature({
+      request,
+      tenantId,
+      featureKey: getScrapeFeatureKey(body.platform),
+    });
+    if (permissionError) return permissionError;
 
     if (!body?.filters || typeof body.filters !== "object") {
       return Response.json({ error: "Filters are required" }, { status: 400 });

@@ -1,4 +1,4 @@
-import { getCrawlQueue } from "@/lib/queue";
+import { getCrawlQueue, SCRAPE_QUEUE_NAME } from "@/lib/queue";
 import type { Redis } from "ioredis";
 import type { NextRequest } from "next/server";
 import {
@@ -114,12 +114,12 @@ export async function POST(request: NextRequest) {
           const client = (queue as unknown as QueueWithClient).client;
           if (client) {
             // Delete job key and references
-            await client.del(`bull:crawl-tasks:${jobId}`);
-            await client.srem(`bull:crawl-tasks:completed`, jobId);
-            await client.srem(`bull:crawl-tasks:active`, jobId);
-            await client.srem(`bull:crawl-tasks:wait`, jobId);
-            await client.srem(`bull:crawl-tasks:failed`, jobId);
-            await client.srem(`bull:crawl-tasks:delayed`, jobId);
+            await client.del(`bull:${SCRAPE_QUEUE_NAME}:${jobId}`);
+            await client.srem(`bull:${SCRAPE_QUEUE_NAME}:completed`, jobId);
+            await client.srem(`bull:${SCRAPE_QUEUE_NAME}:active`, jobId);
+            await client.srem(`bull:${SCRAPE_QUEUE_NAME}:wait`, jobId);
+            await client.srem(`bull:${SCRAPE_QUEUE_NAME}:failed`, jobId);
+            await client.srem(`bull:${SCRAPE_QUEUE_NAME}:delayed`, jobId);
 
             console.log(
               `[CLEAR] ✓ Successfully removed job ${jobId} via Redis`,

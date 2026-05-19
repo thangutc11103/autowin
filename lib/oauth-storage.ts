@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { Pool, type PoolClient } from "pg";
 import { ensureTenant } from "@/lib/database/tenant-storage";
+import { decryptSecret, encryptSecret } from "@/lib/security/encryption";
 import { DEFAULT_TENANT_ID, normalizeTenantId } from "@/lib/tenant-context";
 
 export interface OAuthAccount {
@@ -73,6 +74,7 @@ function shouldUseSsl(connectionString: string): boolean {
     const url = new URL(connectionString);
     return (
       url.hostname.endsWith(".supabase.co") ||
+      url.hostname.endsWith(".neon.tech") ||
       url.searchParams.get("sslmode") === "require"
     );
   } catch {
@@ -261,7 +263,7 @@ function mapPageRow(row: {
     platform: row.platform,
     pageId: row.page_id,
     pageName: row.page_name,
-    pageAccessToken: row.page_access_token || undefined,
+    pageAccessToken: decryptSecret(row.page_access_token),
     instagramBusinessAccountId: row.instagram_business_account_id || undefined,
     instagramUsername: row.instagram_username || undefined,
     isDefault: row.is_default,
@@ -291,8 +293,8 @@ function mapAccountRow(row: {
     key: row.key,
     tenantId: row.tenant_id || DEFAULT_TENANT_ID,
     platform: row.platform,
-    accessToken: row.access_token,
-    refreshToken: row.refresh_token || undefined,
+    accessToken: decryptSecret(row.access_token) || "",
+    refreshToken: decryptSecret(row.refresh_token),
     expiresAt: row.expires_at
       ? new Date(row.expires_at).toISOString()
       : undefined,
@@ -371,8 +373,8 @@ export class OAuthStorage {
           key,
           scopedTenantId,
           account.platform,
-          account.accessToken,
-          account.refreshToken ?? null,
+          encryptSecret(account.accessToken),
+          encryptSecret(account.refreshToken),
           account.expiresAt ?? null,
           account.scope ?? null,
           account.handle ?? null,
@@ -554,7 +556,7 @@ export class OAuthStorage {
               page.platform,
               page.pageId,
               page.pageName,
-              page.pageAccessToken ?? null,
+              encryptSecret(page.pageAccessToken),
               page.instagramBusinessAccountId ?? null,
               page.instagramUsername ?? null,
               page.isDefault,

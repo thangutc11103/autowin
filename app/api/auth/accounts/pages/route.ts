@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
+import { requireFeature } from "@/lib/auth/access-control";
 import { oauthStorage, type OAuthAccountPage } from "@/lib/oauth-storage";
 import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
@@ -88,6 +89,13 @@ async function fetchMetaPages(userAccessToken: string): Promise<OAuthAccountPage
 
 export async function GET(request: Request) {
   const tenantId = getTenantIdFromRequest(request);
+  const permissionError = await requireFeature({
+    request,
+    tenantId,
+    featureKey: "manage_accounts",
+  });
+  if (permissionError) return permissionError;
+
   const { searchParams } = new URL(request.url);
   const accountKey = searchParams.get("accountKey") || undefined;
   const pages = await oauthStorage.getAccountPages({ tenantId, accountKey });
@@ -97,6 +105,13 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const tenantId = getTenantIdFromRequest(request);
+  const permissionError = await requireFeature({
+    request,
+    tenantId,
+    featureKey: "manage_accounts",
+  });
+  if (permissionError) return permissionError;
+
   const body = (await request.json().catch(() => ({}))) as {
     accountKey?: string;
   };
@@ -144,6 +159,13 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   const tenantId = getTenantIdFromRequest(request);
+  const permissionError = await requireFeature({
+    request,
+    tenantId,
+    featureKey: "manage_accounts",
+  });
+  if (permissionError) return permissionError;
+
   const body = (await request.json().catch(() => ({}))) as {
     accountKey?: string;
     pageRecordId?: string;

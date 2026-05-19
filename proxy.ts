@@ -33,6 +33,16 @@ function unauthorized() {
   });
 }
 
+function hasTrustedUserHeader(request: NextRequest) {
+  return (
+    process.env.TRUST_AUTH_HEADERS === "true" &&
+    Boolean(
+      request.headers.get("x-user-id")?.trim() ||
+        request.headers.get("x-user-email")?.trim(),
+    )
+  );
+}
+
 function authMisconfigured() {
   return NextResponse.json(
     { error: "Admin authentication is not configured" },
@@ -66,6 +76,10 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (!isProtectedPath(pathname)) {
+    return NextResponse.next();
+  }
+
+  if (hasTrustedUserHeader(request)) {
     return NextResponse.next();
   }
 
