@@ -8,8 +8,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 COPY package*.json ./
 RUN npm ci
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip ca-certificates && rm -rf /var/lib/apt/lists/*
-RUN pip3 install --no-cache-dir yt-dlp
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip ca-certificates yt-dlp && rm -rf /var/lib/apt/lists/*
 RUN npx playwright install --with-deps chromium
 
 COPY . .
