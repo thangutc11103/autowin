@@ -3,7 +3,12 @@ import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
 import { requireFeature } from "@/lib/auth/access-control";
-import { isR2Configured, uploadR2Object } from "@/lib/storage/r2";
+import {
+  isR2Configured,
+  isR2RequiredButMissing,
+  R2_REQUIRED_IN_PRODUCTION_ERROR,
+  uploadR2Object,
+} from "@/lib/storage/r2";
 import type { Platform, Video } from "@/types/video";
 
 export const runtime = "nodejs";
@@ -59,6 +64,13 @@ export async function POST(request: Request) {
   if (permissionError) return permissionError;
 
   const useR2 = isR2Configured();
+  if (isR2RequiredButMissing()) {
+    return NextResponse.json(
+      { error: R2_REQUIRED_IN_PRODUCTION_ERROR },
+      { status: 500 },
+    );
+  }
+
   let metadata: unknown[] = [];
 
   if (typeof rawMetadata === "string" && rawMetadata.trim()) {

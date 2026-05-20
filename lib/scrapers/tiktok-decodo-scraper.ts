@@ -322,16 +322,35 @@ export class TikTokDecodoScraper {
       if (limitedVideos.length === 0) {
         console.log("  [Fallback] Decodo listing had no video links; trying Playwright listing...");
         const fallbackUrl = this.getPlaywrightFallbackUrl(url, type);
-        const playwrightVideos = await this.crawlListingWithPlaywright(
-          fallbackUrl,
-          requestedLimit,
-        );
 
-        console.log(
-          `  [Done] Found ${playwrightVideos.length} Playwright videos, returning ${playwrightVideos.length}`,
-        );
+        try {
+          const playwrightVideos = await this.crawlListingWithPlaywright(
+            fallbackUrl,
+            requestedLimit,
+          );
 
-        return this.buildListingResult(type, url, playwrightVideos);
+          console.log(
+            `  [Done] Found ${playwrightVideos.length} Playwright videos, returning ${playwrightVideos.length}`,
+          );
+
+          return this.buildListingResult(type, url, playwrightVideos);
+        } catch (fallbackError) {
+          const fallbackMsg =
+            fallbackError instanceof Error
+              ? fallbackError.message
+              : String(fallbackError);
+          console.error(`  [Fallback Error] Playwright failed: ${fallbackMsg}`);
+
+          return {
+            success: false,
+            platform: "tiktok",
+            type,
+            url,
+            count: 0,
+            data: [],
+            error: "Decodo returned no video links and Playwright fallback failed",
+          };
+        }
       }
 
       console.log(

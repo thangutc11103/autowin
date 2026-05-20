@@ -16,11 +16,21 @@ const VALID_PLATFORMS: Platform[] = [
   "instagram",
 ];
 
+type QueueCleanupScope = "finished" | "waiting" | "all-non-active";
+
 interface CleanupRequest {
   mode?: "queue" | "clear-history" | "retention";
   platform?: Platform;
   retentionDays?: 7 | 30;
+  scope?: QueueCleanupScope;
+  confirm?: boolean;
 }
+
+const QUEUE_SCOPE_STATES: Record<QueueCleanupScope, Array<"wait" | "completed" | "failed">> = {
+  finished: ["completed", "failed"],
+  waiting: ["wait"],
+  "all-non-active": ["wait", "completed", "failed"],
+};
 
 function isValidPlatform(value: unknown): value is Platform {
   return (
@@ -28,37 +38,46 @@ function isValidPlatform(value: unknown): value is Platform {
   );
 }
 
-async function cleanupQueue(tenantId: string) {
+async function cleanupQueue(tenantId: string, scope: QueueCleanupScope) {
   const queue = await getCrawlQueue();
-
-  const completedJobs = await queue.getJobs(["completed"], 0, -1);
-  const failedJobs = await queue.getJobs(["failed"], 0, -1);
+  const states = QUEUE_SCOPE_STATES[scope] || QUEUE_SCOPE_STATES.finished;
 
   let cleanedCount = 0;
   let errorCount = 0;
+  const removedByState = {
+    waiting: 0,
+    completed: 0,
+    failed: 0,
+  };
 
   const belongsToTenant = (job: { data: { tenantId?: string } }) =>
     (job.data.tenantId || DEFAULT_TENANT_ID) === tenantId;
 
-  for (const job of [...completedJobs, ...failedJobs]) {
-    if (!belongsToTenant(job)) {
-      continue;
-    }
+  for (const state of states) {
+    const jobs = await queue.getJobs([state], 0, -1);
 
-    try {
-      await job.remove();
-      cleanedCount++;
-    } catch (error) {
-      console.error(`[CLEANUP] Failed to remove queue job ${job.id}:`, error);
-      errorCount++;
+    for (const job of jobs) {
+      if (!belongsToTenant(job)) {
+        continue;
+      }
+
+      try {
+        await job.remove();
+        cleanedCount++;
+        if (state === "wait") removedByState.waiting++;
+        if (state === "completed") removedByState.completed++;
+        if (state === "failed") removedByState.failed++;
+      } catch (error) {
+        console.error(`[CLEANUP] Failed to remove queue job ${job.id}:`, error);
+        errorCount++;
+      }
     }
   }
 
   return {
     cleanedCount,
     errorCount,
-    completedRemoved: completedJobs.filter(belongsToTenant).length,
-    failedRemoved: failedJobs.filter(belongsToTenant).length,
+    removedByState,
   };
 }
 
@@ -76,12 +95,28 @@ export async function POST(request: NextRequest) {
     }
 
     if (mode === "queue") {
-      const queueResult = await cleanupQueue(tenantId);
+      const scope = body.scope || "finished";
+      if (!(scope in QUEUE_SCOPE_STATES)) {
+        return Response.json(
+          { error: `Unsupported queue cleanup scope: ${scope}` },
+          { status: 400 },
+        );
+      }
+
+      if (scope !== "finished" && body.confirm !== true) {
+        return Response.json(
+          { error: "confirm=true is required for waiting/all-non-active cleanup scope" },
+          { status: 400 },
+        );
+      }
+
+      const queueResult = await cleanupQueue(tenantId, scope);
 
       return Response.json({
         success: true,
         mode,
-        message: `Cleaned up ${queueResult.cleanedCount} jobs from queue`,
+        scope,
+        message: `Cleaned up ${queueResult.cleanedCount} jobs from queue (${scope})`,
         ...queueResult,
       });
     }

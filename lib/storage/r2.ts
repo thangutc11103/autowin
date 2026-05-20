@@ -14,6 +14,9 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
+export const R2_REQUIRED_IN_PRODUCTION_ERROR =
+  "Cloudflare R2 is required in production. Check R2 env configuration.";
+
 export function isR2Configured(): boolean {
   return Boolean(
     process.env.R2_ACCESS_KEY_ID &&
@@ -21,6 +24,10 @@ export function isR2Configured(): boolean {
       process.env.R2_BUCKET &&
       (process.env.R2_ENDPOINT || process.env.R2_ACCOUNT_ID),
   );
+}
+
+export function isR2RequiredButMissing(): boolean {
+  return process.env.NODE_ENV === "production" && !isR2Configured();
 }
 
 export function getR2Client(): S3Client {

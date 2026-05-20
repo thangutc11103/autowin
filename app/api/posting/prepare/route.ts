@@ -1,5 +1,9 @@
 import { prepareVideoForPosting } from "@/lib/media/local-media-preparer";
 import { requireFeature } from "@/lib/auth/access-control";
+import {
+  isR2RequiredButMissing,
+  R2_REQUIRED_IN_PRODUCTION_ERROR,
+} from "@/lib/storage/r2";
 import { getTenantIdFromRequest } from "@/lib/tenant-context";
 import type { Video } from "@/types/video";
 import type { NextRequest } from "next/server";
@@ -26,6 +30,13 @@ export async function POST(request: NextRequest) {
       featureKey: "upload_media",
     });
     if (permissionError) return permissionError;
+
+    if (isR2RequiredButMissing()) {
+      return Response.json(
+        { error: R2_REQUIRED_IN_PRODUCTION_ERROR },
+        { status: 500 },
+      );
+    }
 
     const body = (await request.json().catch(() => ({}))) as PreparePostingRequest;
     const videos = Array.isArray(body.videos) ? body.videos : [];

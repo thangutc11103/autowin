@@ -41,6 +41,27 @@ export async function GET(request: NextRequest) {
     const currentUser = await getCurrentUser(request);
     const batchId = searchParams.get("batchId");
     const platform = searchParams.get("platform");
+    const state = searchParams.get("state");
+    const includeGroups = searchParams.get("includeGroups") !== "false";
+    const limitRaw = Number.parseInt(searchParams.get("limit") || "200", 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 1000) : 200;
+
+    const stateToQueueState: Record<string, "wait" | "active" | "completed" | "failed"> = {
+      waiting: "wait",
+      active: "active",
+      completed: "completed",
+      failed: "failed",
+    };
+
+    const selectedStates = state
+      ? [stateToQueueState[state]].filter(Boolean)
+      : ["wait", "active", "completed", "failed"];
+
+    if (selectedStates.length === 0) {
+      return Response.json({ error: `Invalid state: ${state}` }, { status: 400 });
+    }
+
+    const endIndex = Math.max(limit - 1, 0);
 
     console.log(
       "[INSPECT] Starting inspect with batchId:",
@@ -59,28 +80,31 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Lấy tất cả jobs từ các trạng thái khác nhau
+    // Lấy jobs theo state được yêu cầu
     let waitingJobs: Job<CrawlJobData>[] = [];
     let activeJobs: Job<CrawlJobData>[] = [];
     let completedJobs: Job<CrawlJobData>[] = [];
     let failedJobs: Job<CrawlJobData>[] = [];
 
     try {
-      waitingJobs = await queue.getJobs(["wait"], 0, -1);
-      activeJobs = await queue.getJobs(["active"], 0, -1);
-      completedJobs = await queue.getJobs(["completed"], 0, -1);
-      failedJobs = await queue.getJobs(["failed"], 0, -1);
+      if (selectedStates.includes("wait")) {
+        waitingJobs = await queue.getJobs(["wait"], 0, endIndex);
+      }
+      if (selectedStates.includes("active")) {
+        activeJobs = await queue.getJobs(["active"], 0, endIndex);
+      }
+      if (selectedStates.includes("completed")) {
+        completedJobs = await queue.getJobs(["completed"], 0, endIndex);
+      }
+      if (selectedStates.includes("failed")) {
+        failedJobs = await queue.getJobs(["failed"], 0, endIndex);
+      }
     } catch (jobsErr) {
       console.error("[INSPECT] Error fetching jobs:", jobsErr);
       throw new Error("Failed to fetch jobs from queue");
     }
 
-    const allJobs = [
-      ...waitingJobs,
-      ...activeJobs,
-      ...completedJobs,
-      ...failedJobs,
-    ];
+    const allJobs = [...waitingJobs, ...activeJobs, ...completedJobs, ...failedJobs];
 
     console.log(`[INSPECT] Total jobs in queue: ${allJobs.length}`);
 
@@ -149,25 +173,26 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // Group by batchId
     const groupedByBatch: Record<string, InspectJobData[]> = {};
-    jobsData.forEach((job) => {
-      const bid = "batchId" in job.data ? job.data.batchId : "unknown";
-      if (!groupedByBatch[bid]) {
-        groupedByBatch[bid] = [];
-      }
-      groupedByBatch[bid].push(job);
-    });
-
-    // Group by state
     const groupedByState: Record<string, InspectJobData[]> = {};
-    jobsData.forEach((job) => {
-      const state = job.state || "unknown";
-      if (!groupedByState[state]) {
-        groupedByState[state] = [];
-      }
-      groupedByState[state].push(job);
-    });
+
+    if (includeGroups) {
+      jobsData.forEach((job) => {
+        const bid = "batchId" in job.data ? job.data.batchId : "unknown";
+        if (!groupedByBatch[bid]) {
+          groupedByBatch[bid] = [];
+        }
+        groupedByBatch[bid].push(job);
+      });
+
+      jobsData.forEach((job) => {
+        const stateKey = job.state || "unknown";
+        if (!groupedByState[stateKey]) {
+          groupedByState[stateKey] = [];
+        }
+        groupedByState[stateKey].push(job);
+      });
+    }
 
     return Response.json({
       success: true,
@@ -184,6 +209,9 @@ export async function GET(request: NextRequest) {
       filters: {
         batchId: batchId || "none",
         platform: platform || "none",
+        state: state || "all",
+        includeGroups,
+        limit,
       },
       jobs: jobsData,
       groupedByBatch,
