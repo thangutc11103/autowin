@@ -1,5 +1,4 @@
 import { randomUUID } from "crypto";
-import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
 import { requireFeature } from "@/lib/auth/access-control";
@@ -13,8 +12,6 @@ import type { Platform, Video } from "@/types/video";
 
 export const runtime = "nodejs";
 
-const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "ready");
-const PUBLIC_UPLOAD_PATH = "/uploads/ready";
 const MAX_FILE_SIZE = 500 * 1024 * 1024;
 const MAX_FILES_PER_REQUEST = 10;
 const ALLOWED_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".webm"]);
@@ -63,8 +60,7 @@ export async function POST(request: Request) {
   });
   if (permissionError) return permissionError;
 
-  const useR2 = isR2Configured();
-  if (isR2RequiredButMissing()) {
+  if (!isR2Configured() || isR2RequiredButMissing()) {
     return NextResponse.json(
       { error: R2_REQUIRED_IN_PRODUCTION_ERROR },
       { status: 500 },
@@ -94,10 +90,6 @@ export async function POST(request: Request) {
       { error: `Upload at most ${MAX_FILES_PER_REQUEST} files at a time` },
       { status: 400 },
     );
-  }
-
-  if (!useR2) {
-    await mkdir(UPLOAD_DIR, { recursive: true });
   }
 
   const uploadedVideos: Video[] = [];
@@ -136,26 +128,16 @@ export async function POST(request: Request) {
     const id = `upload-${randomUUID()}`;
     const storedName = `${id}${extension}`;
     const objectKey = `tenants/${tenantId}/uploads/ready/${storedName}`;
-    let diskPath: string | undefined;
-    let publicUrl: string;
-    let r2Key: string | undefined;
-
     const fileBuffer = Buffer.from(await file.arrayBuffer());
 
-    if (useR2) {
-      const uploaded = await uploadR2Object({
-        key: objectKey,
-        body: fileBuffer,
-        contentType: file.type || "application/octet-stream",
-        cacheControl: "public, max-age=31536000, immutable",
-      });
-      publicUrl = uploaded.publicUrl;
-      r2Key = uploaded.key;
-    } else {
-      diskPath = path.join(UPLOAD_DIR, storedName);
-      publicUrl = `${PUBLIC_UPLOAD_PATH}/${storedName}`;
-      await writeFile(diskPath, fileBuffer);
-    }
+    const uploaded = await uploadR2Object({
+      key: objectKey,
+      body: fileBuffer,
+      contentType: file.type || "application/octet-stream",
+      cacheControl: "public, max-age=31536000, immutable",
+    });
+    const publicUrl = uploaded.publicUrl;
+    const r2Key = uploaded.key;
 
     uploadedVideos.push({
       id,
@@ -164,13 +146,13 @@ export async function POST(request: Request) {
       platform,
       url: publicUrl,
       description: `Uploaded file - ${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-      preparedLocalPath: diskPath,
+      preparedLocalPath: undefined,
       preparedLocalUrl: publicUrl,
       preparedAt: new Date().toISOString(),
       preparedSource: "direct-media",
       rawPayload: {
         tenantId,
-        storageProvider: useR2 ? "cloudflare-r2" : "local",
+        storageProvider: "cloudflare-r2",
         r2Key,
         publicUrl,
         uploadFileName: file.name,

@@ -8,7 +8,11 @@ import { promisify } from "util";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "zlib";
 import ffmpegStatic from "ffmpeg-static";
 import { resolveMediaWithYtDlp } from "@/lib/media/yt-dlp-resolver";
-import { isR2Configured, uploadR2Object } from "@/lib/storage/r2";
+import {
+  isR2Configured,
+  R2_REQUIRED_IN_PRODUCTION_ERROR,
+  uploadR2Object,
+} from "@/lib/storage/r2";
 import type { Video } from "@/types/video";
 
 const execFileAsync = promisify(execFile);
@@ -117,20 +121,7 @@ async function finalizePreparedVideo(params: {
   mediaAudioUrl?: string | null;
 }): Promise<Video> {
   if (!isR2Configured()) {
-    return {
-      ...params.video,
-      mediaVideoUrl: params.mediaVideoUrl,
-      mediaAudioUrl: params.mediaAudioUrl,
-      preparedLocalPath: params.outputPath,
-      preparedLocalUrl: params.localUrl,
-      preparedAt: new Date().toISOString(),
-      preparedSource: params.source,
-      rawPayload: {
-        ...params.video.rawPayload,
-        ...params.rawPayload,
-        storageProvider: "local",
-      },
-    };
+    throw new Error(R2_REQUIRED_IN_PRODUCTION_ERROR);
   }
 
   const tenantId = getVideoTenantId(params.video);

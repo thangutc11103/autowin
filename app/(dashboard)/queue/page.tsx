@@ -2,6 +2,12 @@
 
 import { useMemo, useState } from 'react';
 
+type StopResponse = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+};
+
 type QueueCleanupScope = 'finished' | 'waiting' | 'all-non-active';
 
 type InspectJobData = {
@@ -71,6 +77,24 @@ function formatProgress(progress: InspectJobData['progress']) {
   return 'In progress';
 }
 
+function formatElapsed(startedAt: string | null) {
+  if (!startedAt) return '-';
+  const diffMs = Date.now() - new Date(startedAt).getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) return '-';
+  const totalSeconds = Math.floor(diffMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}m ${seconds}s`;
+}
+
+function getJobStartTime(job: InspectJobData): string | null {
+  return job.processedOn || job.createdAt || null;
+}
+
+function isStopEligible(state: string) {
+  return state === 'active' || state === 'waiting';
+}
+
 export default function QueuePage() {
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
@@ -82,6 +106,8 @@ export default function QueuePage() {
   const [confirmDestructive, setConfirmDestructive] = useState(false);
   const [cleaning, setCleaning] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
+  const [stoppingJobId, setStoppingJobId] = useState<string | null>(null);
+  const [stopMessage, setStopMessage] = useState<string | null>(null);
 
   const selectedScope = useMemo(
     () => SCOPE_OPTIONS.find((item) => item.value === scope) || SCOPE_OPTIONS[0],
@@ -106,9 +132,37 @@ export default function QueuePage() {
       setActiveCount(result.summary?.byState?.active || 0);
       setWaitingCount(result.summary?.byState?.waiting || 0);
     } catch (error) {
+      setStopMessage(null);
       setJobsError(error instanceof Error ? error.message : 'Failed to load queue status');
     } finally {
       setLoadingJobs(false);
+    }
+  };
+
+  const stopJob = async (jobId: string) => {
+    setStoppingJobId(jobId);
+    setStopMessage(null);
+
+    try {
+      const response = await fetch('/api/filter/stop', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ jobId }),
+      });
+
+      const result = (await response.json()) as StopResponse;
+      if (!response.ok || result.error) {
+        throw new Error(result.error || 'Failed to stop job');
+      }
+
+      setStopMessage(result.message || 'Job stopped.');
+      await fetchRunningJobs();
+    } catch (error) {
+      setStopMessage(error instanceof Error ? error.message : 'Failed to stop job');
+    } finally {
+      setStoppingJobId(null);
     }
   };
 
@@ -199,6 +253,8 @@ export default function QueuePage() {
                   <th className="px-2 py-2">Attempts</th>
                   <th className="px-2 py-2">Progress</th>
                   <th className="px-2 py-2">Started</th>
+                  <th className="px-2 py-2">Elapsed</th>
+                  <th className="px-2 py-2">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-gray-700">
@@ -211,10 +267,26 @@ export default function QueuePage() {
                     <td className="px-2 py-2">{job.attempts}/{job.maxAttempts || 0}</td>
                     <td className="px-2 py-2">{formatProgress(job.progress)}</td>
                     <td className="px-2 py-2">{job.processedOn ? new Date(job.processedOn).toLocaleString() : '-'}</td>
+                    <td className="px-2 py-2">{formatElapsed(getJobStartTime(job))}</td>
+                    <td className="px-2 py-2">
+                      <button
+                        onClick={() => void stopJob(job.id)}
+                        disabled={stoppingJobId === job.id || !isStopEligible(job.state)}
+                        className="rounded-md bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-amber-300"
+                      >
+                        {stoppingJobId === job.id ? 'Stopping...' : 'Stop'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {stopMessage && (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            {stopMessage}
           </div>
         )}
       </div>

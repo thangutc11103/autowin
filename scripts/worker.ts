@@ -54,6 +54,28 @@ const SCRAPE_JOB_DELAY_MS = Math.max(
   Number(process.env.SCRAPE_JOB_DELAY_MS || 1000),
 );
 
+const SCRAPE_TIMEOUT_BY_PLATFORM_MS: Record<string, number> = {
+  tiktok: 10 * 60 * 1000,
+  facebook: 12 * 60 * 1000,
+  instagram: 12 * 60 * 1000,
+  youtube: 10 * 60 * 1000,
+};
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  }) as Promise<T>;
+}
+
+function getScrapeTimeoutMs(platform: string): number {
+  return SCRAPE_TIMEOUT_BY_PLATFORM_MS[platform] || 10 * 60 * 1000;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -176,9 +198,14 @@ function setupWorker() {
         await job.updateProgress(75);
         console.log(`[JOB ${job.id}] ⧖ Crawling...`);
 
-        const scrapeResult = await scraper.crawl(targetUrl, type, limit, {
-          authCookies: job.data.authCookies,
-        });
+        const scrapeTimeoutMs = getScrapeTimeoutMs(platform);
+        const scrapeResult = await withTimeout(
+          scraper.crawl(targetUrl, type, limit, {
+            authCookies: job.data.authCookies,
+          }),
+          scrapeTimeoutMs,
+          `Scrape timed out after ${Math.round(scrapeTimeoutMs / 60000)} minutes for ${platform}`,
+        );
 
         if (scrapeResult.error) {
           throw new Error(`Scraper failed: ${scrapeResult.error}`);
