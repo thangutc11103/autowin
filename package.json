@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "worker": "tsx scripts/worker.ts",
+    "reset-admin-password": "tsx scripts/reset-admin-password.ts",
     "test:decodo-clean": "tsx scripts/test-decodo-clean.ts",
     "test:decodo-targets": "tsx scripts/test-decodo-targets.ts",
     "test:factory-integration": "tsx scripts/test-factory-integration.ts",
