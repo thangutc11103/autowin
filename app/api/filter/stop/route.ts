@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       return Response.json({ success: true, message: `Job already ${state}`, state });
     }
 
-    if (state === "wait" || state === "delayed") {
+    if (state === "waiting" || state === "delayed") {
       await job.remove();
       return Response.json({ success: true, message: "Queued job removed", state });
     }
