@@ -7,6 +7,8 @@ import { getTenantIdFromRequest } from "@/lib/tenant-context";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const META_GRAPH_VERSION = "v21.0";
+
 interface MetaPageResponse {
   data?: Array<{
     id: string;
@@ -41,7 +43,9 @@ function maskPage(page: OAuthAccountPage) {
 async function fetchMetaPages(
   userAccessToken: string,
 ): Promise<OAuthAccountPage[]> {
-  const url = new URL("https://graph.facebook.com/v18.0/me/accounts");
+  const url = new URL(
+    `https://graph.facebook.com/${META_GRAPH_VERSION}/me/accounts`,
+  );
   url.searchParams.set(
     "fields",
     "id,name,access_token,instagram_business_account{id,username,name}",
@@ -145,7 +149,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Account not found" }, { status: 404 });
     }
 
-    if (account.platform !== "facebook" && account.platform !== "instagram") {
+    if (
+      account.platform !== "meta" &&
+      account.platform !== "facebook" &&
+      account.platform !== "instagram"
+    ) {
       return NextResponse.json(
         { error: "Page sync is only available for Meta accounts" },
         { status: 400 },
@@ -153,11 +161,11 @@ export async function POST(request: Request) {
     }
 
     const pages = (await fetchMetaPages(account.accessToken))
-      .filter((page) =>
-        account.platform === "instagram"
-          ? page.platform === "instagram"
-          : page.platform === "facebook",
-      )
+      .filter((page) => {
+        if (account.platform === "meta") return true;
+        if (account.platform === "instagram") return page.platform === "instagram";
+        return page.platform === "facebook";
+      })
       .map((page) => ({
         ...page,
         tenantId,

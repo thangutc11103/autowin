@@ -3,9 +3,9 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useLanguageStore } from '@/store/language.store';
-import type { Platform } from '@/types/video';
 
-type OAuthPlatform = Exclude<Platform, 'douyin'>;
+type OAuthPlatform = 'tiktok' | 'meta' | 'youtube';
+type PagePlatform = 'facebook' | 'instagram';
 
 interface OAuthAccountDebug {
     key: string;
@@ -35,7 +35,7 @@ interface OAuthDebugEvent {
 interface ManagedPage {
     id: string;
     accountKey: string;
-    platform: 'facebook' | 'instagram';
+    platform: PagePlatform;
     pageId: string;
     pageName: string;
     instagramBusinessAccountId?: string;
@@ -58,16 +58,24 @@ interface PagesResponse {
 
 const PLATFORM_LABELS: Record<OAuthPlatform, string> = {
     tiktok: 'TikTok',
-    facebook: 'Facebook',
-    instagram: 'Instagram',
+    meta: 'Meta',
     youtube: 'YouTube',
 };
 
 const PLATFORM_STYLES: Record<OAuthPlatform, string> = {
     tiktok: 'bg-rose-50 text-rose-700 ring-rose-100',
+    meta: 'bg-blue-50 text-blue-700 ring-blue-100',
+    youtube: 'bg-red-50 text-red-700 ring-red-100',
+};
+
+const PAGE_PLATFORM_LABELS: Record<PagePlatform, string> = {
+    facebook: 'Facebook',
+    instagram: 'Instagram',
+};
+
+const PAGE_PLATFORM_STYLES: Record<PagePlatform, string> = {
     facebook: 'bg-sky-50 text-sky-700 ring-sky-100',
     instagram: 'bg-amber-50 text-amber-700 ring-amber-100',
-    youtube: 'bg-red-50 text-red-700 ring-red-100',
 };
 
 const CONNECT_LINKS: Array<{
@@ -75,8 +83,7 @@ const CONNECT_LINKS: Array<{
     href: string;
 }> = [
     { platform: 'tiktok', href: '/api/auth/tiktok' },
-    { platform: 'facebook', href: '/api/auth/meta' },
-    { platform: 'instagram', href: '/api/auth/meta' },
+    { platform: 'meta', href: '/api/auth/meta' },
     { platform: 'youtube', href: '/api/auth/youtube' },
 ];
 
@@ -107,8 +114,7 @@ function groupAccounts(accounts: OAuthAccountDebug[]) {
         },
         {
             tiktok: [],
-            facebook: [],
-            instagram: [],
+            meta: [],
             youtube: [],
         },
     );
@@ -248,7 +254,10 @@ export default function AccountsPage() {
                     label: draftLabels[account.key] || null,
                 }),
             });
-            const data = (await response.json()) as { error?: string };
+            const data = (await response.json()) as {
+                error?: string;
+                revokeWarning?: string;
+            };
 
             if (!response.ok) {
                 throw new Error(data.error || 'Failed to save account name');
@@ -272,14 +281,21 @@ export default function AccountsPage() {
                 `/api/auth/accounts?key=${encodeURIComponent(account.key)}`,
                 { method: 'DELETE' },
             );
-            const data = (await response.json()) as { error?: string };
+            const data = (await response.json()) as {
+                error?: string;
+                revokeWarning?: string;
+            };
 
             if (!response.ok) {
                 throw new Error(data.error || 'Failed to disconnect account');
             }
 
             await loadAccounts();
-            setMessage('Account disconnected.');
+            setMessage(
+                data.revokeWarning
+                    ? `Account disconnected locally. ${data.revokeWarning}`
+                    : 'Account disconnected.',
+            );
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'Failed to disconnect account');
         } finally {
@@ -549,7 +565,7 @@ export default function AccountsPage() {
                                 </div>
                             </div>
 
-                            {(activeAccount.platform === 'facebook' || activeAccount.platform === 'instagram') && (
+                            {activeAccount.platform === 'meta' && (
                                 <div className="mt-5 rounded-lg border border-gray-100 bg-gray-50 p-3">
                                     <div className="flex items-center justify-between gap-3">
                                         <div>
@@ -579,8 +595,8 @@ export default function AccountsPage() {
                                                     <div className="flex items-start justify-between gap-3">
                                                         <div className="min-w-0">
                                                             <div className="mb-1 flex flex-wrap items-center gap-2">
-                                                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${PLATFORM_STYLES[page.platform]}`}>
-                                                                    {PLATFORM_LABELS[page.platform]}
+                                                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${PAGE_PLATFORM_STYLES[page.platform]}`}>
+                                                                    {PAGE_PLATFORM_LABELS[page.platform]}
                                                                 </span>
                                                                 {page.isDefault ? (
                                                                     <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-100">

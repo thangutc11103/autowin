@@ -12,7 +12,7 @@ type ComplianceKey = 'rights' | 'review' | 'api';
 type ChannelStatus = 'connected' | 'setup' | 'review';
 type PostStatus = 'draft' | 'ready' | 'needsReview' | 'queued' | 'scheduled' | 'publishing' | 'published' | 'failed';
 
-type OAuthPlatform = Exclude<Platform, 'douyin'>;
+type OAuthPlatform = Exclude<Platform, 'douyin'> | 'meta';
 
 interface PublishingAccount {
     key: string;
@@ -200,6 +200,11 @@ const POST_STATUS_STYLES: Record<PostStatus, string> = {
     failed: 'bg-red-50 text-red-700 ring-red-100',
 };
 
+const OAUTH_PLATFORM_BADGES: Record<OAuthPlatform, string> = {
+    ...PLATFORM_BADGES,
+    meta: 'bg-blue-50 text-blue-700 ring-blue-100',
+};
+
 function getPostStatusStyle(status: string) {
     return POST_STATUS_STYLES[status as PostStatus] || POST_STATUS_STYLES.queued;
 }
@@ -220,12 +225,17 @@ const PLATFORM_LABELS: Record<Platform, string> = {
     youtube: 'YouTube',
 };
 
+const OAUTH_PLATFORM_LABELS: Record<OAuthPlatform, string> = {
+    ...PLATFORM_LABELS,
+    meta: 'Meta',
+};
+
 function getAccountLabel(account: PublishingAccount) {
     return (
         account.label?.trim() ||
         account.displayName?.trim() ||
         account.handle?.trim() ||
-        `${PLATFORM_LABELS[account.platform]} account`
+        `${OAUTH_PLATFORM_LABELS[account.platform]} account`
     );
 }
 
@@ -345,6 +355,7 @@ export default function AutomationPage() {
                     tiktok: [],
                     facebook: [],
                     instagram: [],
+                    meta: [],
                     youtube: [],
                 },
             ),
@@ -664,8 +675,8 @@ export default function AutomationPage() {
                                             return (
                                                 <div key={platform} className="rounded-lg border border-gray-100 bg-white p-2">
                                                     <div className="mb-2 flex items-center justify-between px-1">
-                                                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${PLATFORM_BADGES[platform]}`}>
-                                                            {PLATFORM_LABELS[platform]}
+                                                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${OAUTH_PLATFORM_BADGES[platform]}`}>
+                                                            {OAUTH_PLATFORM_LABELS[platform]}
                                                         </span>
                                                         <span className="text-[11px] font-semibold text-gray-400">
                                                             {accounts.length} account(s)

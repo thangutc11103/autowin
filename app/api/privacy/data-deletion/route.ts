@@ -1,15 +1,8 @@
 import { createHmac, randomUUID } from "crypto";
+import { getPublicAppUrl } from "@/lib/app-url";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function getAppUrl(): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    process.env.NEXT_PUBLIC_API_URL?.trim() ||
-    "http://localhost:3000"
-  ).replace(/\/$/, "");
-}
 
 function getConfirmationCode(userId?: string | null): string {
   const secret =
@@ -66,7 +59,7 @@ async function parseMetaPayload(request: Request): Promise<{
 export async function POST(request: Request) {
   const { userId, rawPayload } = await parseMetaPayload(request);
   const confirmationCode = getConfirmationCode(userId);
-  const statusUrl = `${getAppUrl()}/privacy/data-deletion?code=${encodeURIComponent(
+  const statusUrl = `${getPublicAppUrl()}/privacy/data-deletion?code=${encodeURIComponent(
     confirmationCode,
   )}`;
 

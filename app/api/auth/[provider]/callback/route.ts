@@ -172,7 +172,9 @@ export async function GET(
       );
     }
 
-    for (const account of config.toAccounts(tokenData)) {
+    const accounts = await config.toAccounts(tokenData);
+
+    for (const account of accounts) {
       await oauthStorage.addAccount(
         { ...account, userId: finalUserId },
         tenantId,

@@ -3,12 +3,14 @@
  */
 
 import type { OAuthAccount } from "@/lib/oauth-storage";
+import {
+  getOAuthSuccessRedirectUrl,
+  getPublicAppUrl,
+} from "@/lib/app-url";
 
 export type OAuthProvider =
   | "tiktok"
   | "meta"
-  | "facebook"
-  | "instagram"
   | "youtube";
 
 interface TokenResponse {
@@ -20,6 +22,19 @@ interface TokenResponse {
   token_type?: string;
 }
 
+interface MetaProfileResponse {
+  id?: string;
+  name?: string;
+  picture?: {
+    data?: {
+      url?: string;
+    };
+  };
+  error?: {
+    message?: string;
+  };
+}
+
 interface OAuthProviderConfig {
   provider: OAuthProvider;
   label: string;
@@ -28,33 +43,11 @@ interface OAuthProviderConfig {
   requiredEnv: string[];
   getAuthUrl: (state: string) => string;
   exchangeCode: (code: string) => Promise<TokenResponse>;
-  toAccounts: (tokenData: TokenResponse) => OAuthAccount[];
-}
-
-function getAppUrl(): string {
-  const url = (
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    process.env.NEXT_PUBLIC_API_URL?.trim() ||
-    "http://localhost:3000"
-  ).replace(/\/$/, "");
-
-  // Force HTTPS on production (non-localhost)
-  if (!url.includes("localhost") && !url.startsWith("https://")) {
-    return url.replace("http://", "https://");
-  }
-
-  return url;
+  toAccounts: (tokenData: TokenResponse) => Promise<OAuthAccount[]> | OAuthAccount[];
 }
 
 function getRedirectUri(path: string): string {
-  return `${getAppUrl()}${path}`;
-}
-
-function getPostAuthRedirectUrl(): string {
-  return (
-    process.env.OAUTH_SUCCESS_REDIRECT_URL?.trim() ||
-    "http://localhost:3000/accounts"
-  );
+  return `${getPublicAppUrl()}${path}`;
 }
 
 function getEnv(name: string): string {
@@ -79,7 +72,26 @@ function createOAuthError(provider: string, response: Response, body: string) {
 }
 
 const metaScopes =
-  "instagram_basic,instagram_content_publish,pages_read_engagement,pages_manage_posts";
+  "public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish";
+
+const metaGraphVersion = "v21.0";
+
+async function fetchMetaProfile(accessToken: string): Promise<MetaProfileResponse> {
+  const url = new URL(`https://graph.facebook.com/${metaGraphVersion}/me`);
+  url.searchParams.set("fields", "id,name,picture");
+  url.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(url);
+  const data = (await response.json()) as MetaProfileResponse;
+
+  if (!response.ok) {
+    throw new Error(
+      data.error?.message || `Meta profile error: ${response.status}`,
+    );
+  }
+
+  return data;
+}
 
 export const OAUTH_PROVIDERS: Record<OAuthProvider, OAuthProviderConfig> = {
   tiktok: {
@@ -152,11 +164,11 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, OAuthProviderConfig> = {
         response_type: "code",
       });
 
-      return `https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`;
+      return `https://www.facebook.com/${metaGraphVersion}/dialog/oauth?${params.toString()}`;
     },
     async exchangeCode(code: string) {
       const response = await fetch(
-        "https://graph.facebook.com/v18.0/oauth/access_token",
+        `https://graph.facebook.com/${metaGraphVersion}/oauth/access_token`,
         {
           method: "POST",
           headers: {
@@ -178,124 +190,17 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, OAuthProviderConfig> = {
 
       return response.json();
     },
-    toAccounts(tokenData) {
-      const connectedAt = new Date().toISOString();
+    async toAccounts(tokenData) {
+      const profile = await fetchMetaProfile(tokenData.access_token);
 
       return [
         {
-          platform: "facebook",
+          platform: "meta",
           accessToken: tokenData.access_token,
           scope: tokenData.scope,
-          connectedAt,
-        },
-        {
-          platform: "instagram",
-          accessToken: tokenData.access_token,
-          scope: tokenData.scope,
-          connectedAt,
-        },
-      ];
-    },
-  },
-  facebook: {
-    provider: "facebook",
-    label: "Facebook",
-    stateCookie: "oauth_state_meta",
-    callbackPath: "/api/auth/meta/callback",
-    requiredEnv: ["META_APP_ID", "META_APP_SECRET"],
-    getAuthUrl(state: string) {
-      const params = new URLSearchParams({
-        client_id: getEnv("META_APP_ID"),
-        redirect_uri: getRedirectUri(this.callbackPath),
-        state,
-        scope: metaScopes,
-        response_type: "code",
-      });
-
-      return `https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`;
-    },
-    async exchangeCode(code: string) {
-      const response = await fetch(
-        "https://graph.facebook.com/v18.0/oauth/access_token",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: new URLSearchParams({
-            client_id: getEnv("META_APP_ID"),
-            client_secret: getEnv("META_APP_SECRET"),
-            grant_type: "authorization_code",
-            redirect_uri: getRedirectUri(this.callbackPath),
-            code,
-          }).toString(),
-        },
-      );
-
-      if (!response.ok) {
-        throw createOAuthError("Facebook", response, await response.text());
-      }
-
-      return response.json();
-    },
-    toAccounts(tokenData) {
-      return [
-        {
-          platform: "facebook",
-          accessToken: tokenData.access_token,
-          scope: tokenData.scope,
-          connectedAt: new Date().toISOString(),
-        },
-      ];
-    },
-  },
-  instagram: {
-    provider: "instagram",
-    label: "Instagram",
-    stateCookie: "oauth_state_meta",
-    callbackPath: "/api/auth/meta/callback",
-    requiredEnv: ["META_APP_ID", "META_APP_SECRET"],
-    getAuthUrl(state: string) {
-      const params = new URLSearchParams({
-        client_id: getEnv("META_APP_ID"),
-        redirect_uri: getRedirectUri(this.callbackPath),
-        state,
-        scope: metaScopes,
-        response_type: "code",
-      });
-
-      return `https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`;
-    },
-    async exchangeCode(code: string) {
-      const response = await fetch(
-        "https://graph.facebook.com/v18.0/oauth/access_token",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: new URLSearchParams({
-            client_id: getEnv("META_APP_ID"),
-            client_secret: getEnv("META_APP_SECRET"),
-            grant_type: "authorization_code",
-            redirect_uri: getRedirectUri(this.callbackPath),
-            code,
-          }).toString(),
-        },
-      );
-
-      if (!response.ok) {
-        throw createOAuthError("Instagram", response, await response.text());
-      }
-
-      return response.json();
-    },
-    toAccounts(tokenData) {
-      return [
-        {
-          platform: "instagram",
-          accessToken: tokenData.access_token,
-          scope: tokenData.scope,
+          handle: profile.id || "meta-user",
+          displayName: profile.name,
+          profilePicture: profile.picture?.data?.url,
           connectedAt: new Date().toISOString(),
         },
       ];
@@ -369,7 +274,7 @@ export function getAccountsRedirect(
   provider: OAuthProvider,
   result: "success" | "error",
 ) {
-  const redirectUrl = new URL(getPostAuthRedirectUrl());
+  const redirectUrl = new URL(getOAuthSuccessRedirectUrl());
   redirectUrl.searchParams.set("oauth", provider);
   redirectUrl.searchParams.set(result, "true");
 
@@ -381,7 +286,7 @@ export function getMissingEnv(config: OAuthProviderConfig): string[] {
 }
 
 export function shouldUseSecureCookie(): boolean {
-  return getAppUrl().startsWith("https://");
+  return getPublicAppUrl().startsWith("https://");
 }
 
 export function createOAuthState(): string {

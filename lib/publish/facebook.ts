@@ -1,3 +1,4 @@
+import { getFacebookPublicBaseUrl } from "@/lib/app-url";
 import { oauthStorage } from "@/lib/oauth-storage";
 import type { PublishTargetContext } from "@/lib/database/posting-storage";
 
@@ -36,33 +37,18 @@ export interface FacebookPublishResult {
   pageId: string;
 }
 
-function getPublicBaseUrl(): string {
-  const baseUrl =
-    process.env.FACEBOOK_PUBLIC_BASE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXT_PUBLIC_API_URL;
-
-  if (!baseUrl) {
-    throw new Error(
-      "Missing FACEBOOK_PUBLIC_BASE_URL or NEXT_PUBLIC_APP_URL for Facebook file_url",
-    );
-  }
-
-  return baseUrl.replace(/\/$/, "");
-}
-
 function toPublicVideoUrl(videoUrl: string): string {
   if (/^https?:\/\//i.test(videoUrl)) {
     const parsed = new URL(videoUrl);
 
     if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
-      return `${getPublicBaseUrl()}${parsed.pathname}${parsed.search}`;
+      return `${getFacebookPublicBaseUrl()}${parsed.pathname}${parsed.search}`;
     }
 
     return videoUrl;
   }
 
-  return `${getPublicBaseUrl()}${videoUrl.startsWith("/") ? "" : "/"}${videoUrl}`;
+  return `${getFacebookPublicBaseUrl()}${videoUrl.startsWith("/") ? "" : "/"}${videoUrl}`;
 }
 
 export async function publishFacebookVideo(

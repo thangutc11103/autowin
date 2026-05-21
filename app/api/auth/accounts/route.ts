@@ -7,11 +7,33 @@ import { getCurrentUser } from "@/lib/auth/session-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const META_GRAPH_VERSION = "v21.0";
+
 function maskToken(token?: string) {
   if (!token) return null;
   if (token.length <= 12) return "***";
 
   return `${token.slice(0, 6)}...${token.slice(-4)}`;
+}
+
+function isMetaAccount(platform: string) {
+  return platform === "meta" || platform === "facebook" || platform === "instagram";
+}
+
+async function revokeMetaPermissions(accessToken: string) {
+  const url = new URL(
+    `https://graph.facebook.com/${META_GRAPH_VERSION}/me/permissions`,
+  );
+  url.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(url, { method: "DELETE" });
+  const body = await response.text();
+
+  if (!response.ok) {
+    throw new Error(
+      `Meta revoke failed: ${response.status} ${response.statusText} ${body}`.trim(),
+    );
+  }
 }
 
 export async function GET(request: Request) {
@@ -132,9 +154,47 @@ export async function DELETE(request: Request) {
       );
     }
 
+    const account = await oauthStorage.getStoredAccount(key, tenantId);
+    let revokeWarning: string | undefined;
+
+    if (account && isMetaAccount(account.platform)) {
+      try {
+        await revokeMetaPermissions(account.accessToken);
+        await oauthStorage.addDebugEvent(
+          {
+            type: "oauth_callback",
+            provider: "meta",
+            platform: account.platform,
+            message: "Meta permissions revoked during account disconnect",
+            details: { key },
+          },
+          tenantId,
+        );
+      } catch (error) {
+        revokeWarning =
+          error instanceof Error
+            ? error.message.slice(0, 500)
+            : "Failed to revoke Meta permissions";
+        console.warn("[DELETE /api/auth/accounts] Meta revoke warning", {
+          key,
+          warning: revokeWarning,
+        });
+        await oauthStorage.addDebugEvent(
+          {
+            type: "oauth_error",
+            provider: "meta",
+            platform: account.platform,
+            message: "Meta permission revoke failed during account disconnect",
+            details: { key, warning: revokeWarning },
+          },
+          tenantId,
+        );
+      }
+    }
+
     await oauthStorage.removeAccount(key, tenantId);
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, revokeWarning });
   } catch (error) {
     console.error("[DELETE /api/auth/accounts]", error);
     return NextResponse.json(
