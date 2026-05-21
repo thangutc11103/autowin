@@ -2,6 +2,7 @@ import { randomBytes, scryptSync, timingSafeEqual, createHash } from "crypto";
 import { Pool, type PoolClient } from "pg";
 import { normalizeTenantId } from "@/lib/tenant-context";
 import { ensureAccessControlStorage } from "@/lib/auth/access-control";
+import { ensureTenant } from "@/lib/database/tenant-storage";
 
 export const SESSION_COOKIE_NAME = "autowin_session";
 export const DEVICE_COOKIE_NAME = "autowin_device";
@@ -417,4 +418,93 @@ export async function revokeUserSessions(params: {
       [normalizeTenantId(params.tenantId), params.userId],
     ),
   );
+}
+
+export async function createOAuthUser(params: {
+  request: Request;
+  email?: string | null;
+  displayName?: string | null;
+  tenantId?: string;
+  deviceId?: string | null;
+}): Promise<{ user: CurrentUser; sessionToken: string; deviceId: string }> {
+  const tenantId = normalizeTenantId(params.tenantId);
+  const deviceId = params.deviceId?.trim() || randomBytes(24).toString("hex");
+  const userId = `oauth_${randomBytes(12).toString("hex")}`;
+
+  await ensureSessionStorage();
+  await ensureTenant(tenantId);
+
+  return withClient(async (client) => {
+    await client.query("BEGIN");
+
+    try {
+      // Create user
+      await client.query(
+        `
+          INSERT INTO users (id, email, display_name, status)
+          VALUES ($1, $2, $3, 'active')
+        `,
+        [userId, params.email || null, params.displayName || "User"],
+      );
+
+      // Add user to tenant
+      await client.query(
+        `
+          INSERT INTO tenant_members (tenant_id, user_id, role)
+          VALUES ($1, $2, 'member')
+        `,
+        [tenantId, userId],
+      );
+
+      // Create session
+      const sessionToken = randomBytes(48).toString("base64url");
+      const sessionId = randomBytes(16).toString("hex");
+      const expiresAt = getSessionExpiry();
+
+      await client.query(
+        `
+          INSERT INTO user_sessions (
+            id, tenant_id, user_id, device_id, session_token_hash,
+            ip_address, user_agent, expires_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `,
+        [
+          sessionId,
+          tenantId,
+          userId,
+          deviceId,
+          hashToken(sessionToken),
+          getIpAddress(params.request),
+          params.request.headers.get("user-agent"),
+          expiresAt,
+        ],
+      );
+
+      await client.query(
+        "UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1",
+        [userId],
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        sessionToken,
+        deviceId,
+        user: {
+          id: userId,
+          email: params.email || undefined,
+          displayName: params.displayName || "User",
+          tenantId,
+          role: "member",
+          status: "active",
+          sessionId,
+          deviceId,
+        },
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
 }
