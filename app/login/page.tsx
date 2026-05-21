@@ -35,26 +35,43 @@ export default function LoginPage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4 py-8">
+      <section className="mb-6 w-full max-w-sm text-center">
+        <p className="text-xs font-semibold uppercase text-blue-700">
+          AutoWin Content Dashboard
+        </p>
+        <h1 className="mt-2 text-2xl font-bold text-gray-950">
+          Dang nhap cong quan tri noi bo
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-gray-600">
+          Chi tai khoan duoc cap quyen moi co the truy cap. Trang nay khong
+          phai trang dang nhap cua Facebook, Instagram, TikTok hay YouTube.
+        </p>
+      </section>
+
       <form
         onSubmit={submit}
         className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
       >
-        <h1 className="text-xl font-bold text-gray-950">Sign in</h1>
+        <h2 className="text-lg font-bold text-gray-950">Tai khoan AutoWin</h2>
+        <p className="mt-1 text-sm text-gray-500">
+          Dang nhap bang tai khoan noi bo do quan tri vien AutoWin cap.
+        </p>
         <div className="mt-5 space-y-4">
           <label className="block">
             <span className="text-xs font-semibold uppercase text-gray-500">
-              User ID or email
+              Ten dang nhap hoac email
             </span>
             <input
               value={login}
               onChange={(event) => setLogin(event.target.value)}
               className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
               autoComplete="username"
+              inputMode="email"
             />
           </label>
           <label className="block">
             <span className="text-xs font-semibold uppercase text-gray-500">
-              Password
+              Mat khau noi bo
             </span>
             <input
               type="password"
@@ -77,11 +94,15 @@ export default function LoginPage() {
           disabled={isSubmitting}
           className="mt-5 w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-blue-300"
         >
-          {isSubmitting ? "Signing in" : "Sign in"}
+          {isSubmitting ? "Dang dang nhap" : "Dang nhap"}
         </button>
       </form>
 
-      <footer className="mt-8 text-center text-xs text-gray-500">
+      <footer className="mt-8 max-w-sm text-center text-xs leading-5 text-gray-500">
+        <p className="mb-2">
+          AutoWin su dung API chinh thuc cua cac nen tang sau khi ban ket noi
+          tai khoan trong dashboard.
+        </p>
         <a href="/privacy-policy" className="text-blue-600 hover:underline">
           Privacy Policy
         </a>
