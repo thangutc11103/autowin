@@ -7,7 +7,7 @@ import { DEFAULT_TENANT_ID, normalizeTenantId } from "@/lib/tenant-context";
 export interface OAuthAccount {
   tenantId?: string;
   userId?: string;
-  platform: "tiktok" | "meta" | "facebook" | "instagram" | "youtube";
+  platform: "tiktok" | "facebook" | "instagram" | "youtube";
   accessToken: string;
   refreshToken?: string;
   expiresAt?: string;

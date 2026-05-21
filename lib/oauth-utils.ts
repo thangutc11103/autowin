@@ -35,7 +35,7 @@ function getAppUrl(): string {
   const url = (
     process.env.NEXT_PUBLIC_APP_URL?.trim() ||
     process.env.NEXT_PUBLIC_API_URL?.trim() ||
-    "https://app.autowin.online"
+    "http://localhost:3000"
   ).replace(/\/$/, "");
 
   // Force HTTPS on production (non-localhost)
@@ -53,7 +53,7 @@ function getRedirectUri(path: string): string {
 function getPostAuthRedirectUrl(): string {
   return (
     process.env.OAUTH_SUCCESS_REDIRECT_URL?.trim() ||
-    "https://app.autowin.online/accounts"
+    "http://localhost:3000/accounts"
   );
 }
 
@@ -152,10 +152,6 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, OAuthProviderConfig> = {
         response_type: "code",
       });
 
-      console.log(
-        "[OAuth Meta] Redirect URI:",
-        getRedirectUri(this.callbackPath),
-      );
       return `https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`;
     },
     async exchangeCode(code: string) {
@@ -177,19 +173,75 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, OAuthProviderConfig> = {
       );
 
       if (!response.ok) {
-        const errorBody = await response.text();
-        console.error("[OAuth Meta] Token exchange error:", errorBody);
-        throw createOAuthError("Meta", response, errorBody);
+        throw createOAuthError("Meta", response, await response.text());
       }
 
       return response.json();
     },
     toAccounts(tokenData) {
-      // Store ONLY meta platform - don't auto-create facebook/instagram
-      // User needs to fetch pages/IG accounts separately via Graph API
+      const connectedAt = new Date().toISOString();
+
       return [
         {
-          platform: "meta",
+          platform: "facebook",
+          accessToken: tokenData.access_token,
+          scope: tokenData.scope,
+          connectedAt,
+        },
+        {
+          platform: "instagram",
+          accessToken: tokenData.access_token,
+          scope: tokenData.scope,
+          connectedAt,
+        },
+      ];
+    },
+  },
+  facebook: {
+    provider: "facebook",
+    label: "Facebook",
+    stateCookie: "oauth_state_meta",
+    callbackPath: "/api/auth/meta/callback",
+    requiredEnv: ["META_APP_ID", "META_APP_SECRET"],
+    getAuthUrl(state: string) {
+      const params = new URLSearchParams({
+        client_id: getEnv("META_APP_ID"),
+        redirect_uri: getRedirectUri(this.callbackPath),
+        state,
+        scope: metaScopes,
+        response_type: "code",
+      });
+
+      return `https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`;
+    },
+    async exchangeCode(code: string) {
+      const response = await fetch(
+        "https://graph.facebook.com/v18.0/oauth/access_token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            client_id: getEnv("META_APP_ID"),
+            client_secret: getEnv("META_APP_SECRET"),
+            grant_type: "authorization_code",
+            redirect_uri: getRedirectUri(this.callbackPath),
+            code,
+          }).toString(),
+        },
+      );
+
+      if (!response.ok) {
+        throw createOAuthError("Facebook", response, await response.text());
+      }
+
+      return response.json();
+    },
+    toAccounts(tokenData) {
+      return [
+        {
+          platform: "facebook",
           accessToken: tokenData.access_token,
           scope: tokenData.scope,
           connectedAt: new Date().toISOString(),
@@ -197,36 +249,56 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, OAuthProviderConfig> = {
       ];
     },
   },
-  facebook: {
-    provider: "meta",
-    label: "Facebook",
-    stateCookie: "oauth_state_meta",
-    callbackPath: "/api/auth/meta/callback",
-    requiredEnv: ["META_APP_ID", "META_APP_SECRET"],
-    getAuthUrl(state: string) {
-      return OAUTH_PROVIDERS.meta.getAuthUrl(state);
-    },
-    async exchangeCode(code: string) {
-      return OAUTH_PROVIDERS.meta.exchangeCode(code);
-    },
-    toAccounts(tokenData) {
-      return OAUTH_PROVIDERS.meta.toAccounts(tokenData);
-    },
-  },
   instagram: {
-    provider: "meta",
+    provider: "instagram",
     label: "Instagram",
     stateCookie: "oauth_state_meta",
     callbackPath: "/api/auth/meta/callback",
     requiredEnv: ["META_APP_ID", "META_APP_SECRET"],
     getAuthUrl(state: string) {
-      return OAUTH_PROVIDERS.meta.getAuthUrl(state);
+      const params = new URLSearchParams({
+        client_id: getEnv("META_APP_ID"),
+        redirect_uri: getRedirectUri(this.callbackPath),
+        state,
+        scope: metaScopes,
+        response_type: "code",
+      });
+
+      return `https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`;
     },
     async exchangeCode(code: string) {
-      return OAUTH_PROVIDERS.meta.exchangeCode(code);
+      const response = await fetch(
+        "https://graph.facebook.com/v18.0/oauth/access_token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            client_id: getEnv("META_APP_ID"),
+            client_secret: getEnv("META_APP_SECRET"),
+            grant_type: "authorization_code",
+            redirect_uri: getRedirectUri(this.callbackPath),
+            code,
+          }).toString(),
+        },
+      );
+
+      if (!response.ok) {
+        throw createOAuthError("Instagram", response, await response.text());
+      }
+
+      return response.json();
     },
     toAccounts(tokenData) {
-      return OAUTH_PROVIDERS.meta.toAccounts(tokenData);
+      return [
+        {
+          platform: "instagram",
+          accessToken: tokenData.access_token,
+          scope: tokenData.scope,
+          connectedAt: new Date().toISOString(),
+        },
+      ];
     },
   },
   youtube: {
