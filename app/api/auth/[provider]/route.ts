@@ -62,7 +62,11 @@ export async function GET(
     });
 
     const authUrl = config.getAuthUrl(state);
-    console.log(`[OAuth Init] Redirecting to: ${authUrl.substring(0, 100)}...`);
+    const redirectUri = authUrl.match(/redirect_uri=([^&]+)/)?.[1];
+    const decodedRedirectUri = redirectUri
+      ? decodeURIComponent(redirectUri)
+      : "N/A";
+    console.log(`[OAuth Init] Redirect URI: ${decodedRedirectUri}`);
 
     const response = NextResponse.redirect(authUrl);
 
