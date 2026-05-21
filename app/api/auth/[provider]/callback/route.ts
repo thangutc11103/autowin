@@ -18,7 +18,9 @@ function redirectWithClearedState(
   provider: OAuthProvider,
   stateCookie: string,
 ) {
-  const response = NextResponse.redirect(getAccountsRedirect(provider, "error"));
+  const response = NextResponse.redirect(
+    getAccountsRedirect(provider, "error"),
+  );
   response.cookies.set(stateCookie, "", {
     httpOnly: true,
     maxAge: 0,
@@ -41,7 +43,11 @@ export async function GET(
   const config = getOAuthProvider(provider);
 
   if (!config) {
-    return NextResponse.json({ error: "Unsupported OAuth provider" }, { status: 404 });
+    console.error("[OAuth Callback] Unsupported provider:", provider);
+    return NextResponse.json(
+      { error: "Unsupported OAuth provider" },
+      { status: 404 },
+    );
   }
 
   const { searchParams } = new URL(request.url);
@@ -49,6 +55,15 @@ export async function GET(
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const expectedState = request.cookies.get(config.stateCookie)?.value;
+
+  console.log("[OAuth Callback]", {
+    provider,
+    hasCode: !!code,
+    hasState: !!state,
+    stateMatchesCookie: state === expectedState,
+    error,
+  });
+
   const stateMatchesCookie = Boolean(
     state && expectedState && state === expectedState,
   );
@@ -63,45 +78,67 @@ export async function GET(
   const userId = consumedState.userId;
 
   if (error) {
-    console.error(`[OAuth/${config.label}/Callback] Provider returned error: ${error}`);
-    await oauthStorage.addDebugEvent({
-      type: "oauth_error",
-      provider: config.provider,
-      message: `${config.label} returned an OAuth error`,
-      details: {
-        error,
-        errorDescription: searchParams.get("error_description"),
+    console.error(
+      `[OAuth/${config.label}/Callback] Provider returned error: ${error}`,
+    );
+    await oauthStorage.addDebugEvent(
+      {
+        type: "oauth_error",
+        provider: config.provider,
+        message: `${config.label} returned an OAuth error`,
+        details: {
+          error,
+          errorDescription: searchParams.get("error_description"),
+        },
       },
-    }, tenantId);
+      tenantId,
+    );
     return redirectWithClearedState(config.provider, config.stateCookie);
   }
 
   if (!code || !state || (!stateMatchesCookie && !stateMatchesDatabase)) {
-    console.error(`[OAuth/${config.label}/Callback] Invalid authorization response`);
-    await oauthStorage.addDebugEvent({
-      type: "oauth_error",
-      provider: config.provider,
-      message: `${config.label} callback failed state/code validation`,
-      details: {
+    console.error(
+      `[OAuth/${config.label}/Callback] Invalid authorization response`,
+      {
         hasCode: Boolean(code),
         hasState: Boolean(state),
-        hasExpectedState: Boolean(expectedState),
         stateMatchesCookie,
         stateMatchesDatabase,
+        provider: config.provider,
       },
-    }, tenantId);
+    );
+    await oauthStorage.addDebugEvent(
+      {
+        type: "oauth_error",
+        provider: config.provider,
+        message: `${config.label} callback failed state/code validation`,
+        details: {
+          hasCode: Boolean(code),
+          hasState: Boolean(state),
+          hasExpectedState: Boolean(expectedState),
+          stateMatchesCookie,
+          stateMatchesDatabase,
+          cookieTenant: consumedState.tenantId,
+          requestTenant: getTenantIdFromRequest(request),
+        },
+      },
+      tenantId,
+    );
     return redirectWithClearedState(config.provider, config.stateCookie);
   }
 
   try {
-    await oauthStorage.addDebugEvent({
-      type: "oauth_callback",
-      provider: config.provider,
-      message: `${config.label} callback received; exchanging code`,
-      details: {
-        hasCode: true,
+    await oauthStorage.addDebugEvent(
+      {
+        type: "oauth_callback",
+        provider: config.provider,
+        message: `${config.label} callback received; exchanging code`,
+        details: {
+          hasCode: true,
+        },
       },
-    }, tenantId);
+      tenantId,
+    );
 
     const tokenData = await config.exchangeCode(code);
 
@@ -109,7 +146,9 @@ export async function GET(
       await oauthStorage.addAccount({ ...account, userId }, tenantId);
     }
 
-    const response = NextResponse.redirect(getAccountsRedirect(config.provider, "success"));
+    const response = NextResponse.redirect(
+      getAccountsRedirect(config.provider, "success"),
+    );
     response.cookies.set(config.stateCookie, "", {
       httpOnly: true,
       maxAge: 0,
@@ -120,18 +159,34 @@ export async function GET(
 
     return response;
   } catch (exchangeError) {
-    console.error(`[OAuth/${config.label}/Callback]`, exchangeError);
-    await oauthStorage.addDebugEvent({
-      type: "oauth_error",
+    const errorMessage =
+      exchangeError instanceof Error
+        ? exchangeError.message.slice(0, 500)
+        : String(exchangeError).slice(0, 500);
+
+    console.error(`[OAuth/${config.label}/Callback] Token exchange failed`, {
+      error: errorMessage,
       provider: config.provider,
-      message: `${config.label} token exchange failed`,
-      details: {
-        error:
-          exchangeError instanceof Error
-            ? exchangeError.message.slice(0, 500)
-            : String(exchangeError).slice(0, 500),
+      tenantId,
+      userId,
+      stack: exchangeError instanceof Error ? exchangeError.stack : undefined,
+    });
+
+    await oauthStorage.addDebugEvent(
+      {
+        type: "oauth_error",
+        provider: config.provider,
+        message: `${config.label} token exchange failed`,
+        details: {
+          error: errorMessage,
+          errorType:
+            exchangeError instanceof Error
+              ? exchangeError.constructor.name
+              : "unknown",
+        },
       },
-    }, tenantId);
+      tenantId,
+    );
     return redirectWithClearedState(config.provider, config.stateCookie);
   }
 }
