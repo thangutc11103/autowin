@@ -34,7 +34,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4 py-8">
       <form
         onSubmit={submit}
         className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
@@ -80,6 +80,16 @@ export default function LoginPage() {
           {isSubmitting ? "Signing in" : "Sign in"}
         </button>
       </form>
+
+      <footer className="mt-8 text-center text-xs text-gray-500">
+        <a href="/privacy-policy" className="text-blue-600 hover:underline">
+          Privacy Policy
+        </a>
+        <span> | </span>
+        <a href="/terms-of-service" className="text-blue-600 hover:underline">
+          Terms of Service
+        </a>
+      </footer>
     </main>
   );
 }
