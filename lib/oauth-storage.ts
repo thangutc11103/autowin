@@ -7,7 +7,7 @@ import { DEFAULT_TENANT_ID, normalizeTenantId } from "@/lib/tenant-context";
 export interface OAuthAccount {
   tenantId?: string;
   userId?: string;
-  platform: "tiktok" | "facebook" | "instagram" | "youtube";
+  platform: "tiktok" | "meta" | "facebook" | "instagram" | "youtube";
   accessToken: string;
   refreshToken?: string;
   expiresAt?: string;
@@ -409,25 +409,32 @@ export class OAuthStorage {
       ),
     );
 
-    await this.addDebugEvent({
-      type: "account_added",
-      platform: account.platform,
-      message: `Added ${account.platform} OAuth account`,
-      details: {
-        key,
-        handle: account.handle,
-        label: account.label,
-        displayName: account.displayName,
-        hasRefreshToken: Boolean(account.refreshToken),
-        expiresAt: account.expiresAt,
-        scope: account.scope,
+    await this.addDebugEvent(
+      {
+        type: "account_added",
+        platform: account.platform,
+        message: `Added ${account.platform} OAuth account`,
+        details: {
+          key,
+          handle: account.handle,
+          label: account.label,
+          displayName: account.displayName,
+          hasRefreshToken: Boolean(account.refreshToken),
+          expiresAt: account.expiresAt,
+          scope: account.scope,
+        },
       },
-    }, scopedTenantId);
+      scopedTenantId,
+    );
 
     return key;
   }
 
-  async getAccounts(params?: { tenantId?: string; userId?: string | null; platform?: string }): Promise<OAuthAccount[]> {
+  async getAccounts(params?: {
+    tenantId?: string;
+    userId?: string | null;
+    platform?: string;
+  }): Promise<OAuthAccount[]> {
     const accounts = await this.getStoredAccounts(params);
     return accounts.map((storedAccount) => ({
       tenantId: storedAccount.tenantId,
@@ -444,7 +451,11 @@ export class OAuthStorage {
     }));
   }
 
-  async getStoredAccounts(params?: { tenantId?: string; userId?: string | null; platform?: string }): Promise<StoredOAuthAccount[]> {
+  async getStoredAccounts(params?: {
+    tenantId?: string;
+    userId?: string | null;
+    platform?: string;
+  }): Promise<StoredOAuthAccount[]> {
     const tenantId = normalizeTenantId(params?.tenantId);
     await ensureOAuthStorage();
 
@@ -478,7 +489,10 @@ export class OAuthStorage {
     });
   }
 
-  async getStoredAccount(key: string, tenantId?: string): Promise<StoredOAuthAccount | null> {
+  async getStoredAccount(
+    key: string,
+    tenantId?: string,
+  ): Promise<StoredOAuthAccount | null> {
     const scopedTenantId = normalizeTenantId(tenantId);
     await ensureOAuthStorage();
 
@@ -515,14 +529,18 @@ export class OAuthStorage {
     await ensureOAuthStorage();
 
     await withClient((client) =>
-      client.query("DELETE FROM oauth_accounts WHERE key = $1 AND tenant_id = $2", [
-        key,
-        scopedTenantId,
-      ]),
+      client.query(
+        "DELETE FROM oauth_accounts WHERE key = $1 AND tenant_id = $2",
+        [key, scopedTenantId],
+      ),
     );
   }
 
-  async updateAccountLabel(key: string, label: string | null, tenantId?: string): Promise<void> {
+  async updateAccountLabel(
+    key: string,
+    label: string | null,
+    tenantId?: string,
+  ): Promise<void> {
     const scopedTenantId = normalizeTenantId(tenantId);
     await ensureOAuthStorage();
 
@@ -538,7 +556,10 @@ export class OAuthStorage {
     );
   }
 
-  async upsertAccountPages(pages: OAuthAccountPage[], tenantId?: string): Promise<void> {
+  async upsertAccountPages(
+    pages: OAuthAccountPage[],
+    tenantId?: string,
+  ): Promise<void> {
     if (pages.length === 0) return;
 
     const scopedTenantId = normalizeTenantId(tenantId || pages[0]?.tenantId);
@@ -785,7 +806,13 @@ export class OAuthStorage {
             expires_at = EXCLUDED.expires_at,
             created_at = NOW()
         `,
-        [params.state, tenantId, params.userId ?? null, params.provider, ttlSeconds],
+        [
+          params.state,
+          tenantId,
+          params.userId ?? null,
+          params.provider,
+          ttlSeconds,
+        ],
       ),
     );
   }
