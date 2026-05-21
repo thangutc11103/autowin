@@ -19,43 +19,70 @@ export async function GET(
   request: NextRequest,
   context: RouteContext<"/api/auth/[provider]">,
 ) {
-  const limitResponse = await rateLimiter(request);
-  if (limitResponse) return limitResponse;
+  try {
+    const limitResponse = await rateLimiter(request);
+    if (limitResponse) return limitResponse;
 
-  const { provider } = await context.params;
-  const tenantId = getTenantIdFromRequest(request);
-  const currentUser = await getCurrentUser(request);
-  const config = getOAuthProvider(provider);
+    const { provider } = await context.params;
+    const tenantId = getTenantIdFromRequest(request);
+    const currentUser = await getCurrentUser(request);
+    const config = getOAuthProvider(provider);
 
-  if (!config) {
-    return NextResponse.json({ error: "Unsupported OAuth provider" }, { status: 404 });
-  }
+    console.log(
+      `[OAuth Init] Provider: ${provider}, Tenant: ${tenantId}, User: ${currentUser?.id || "anonymous"}`,
+    );
 
-  const missingEnv = getMissingEnv(config);
-  if (missingEnv.length > 0) {
+    if (!config) {
+      console.error(`[OAuth Init] Unsupported provider: ${provider}`);
+      return NextResponse.json(
+        { error: "Unsupported OAuth provider" },
+        { status: 404 },
+      );
+    }
+
+    const missingEnv = getMissingEnv(config);
+    if (missingEnv.length > 0) {
+      console.error(
+        `[OAuth Init] Missing env for ${provider}: ${missingEnv.join(", ")}`,
+      );
+      return NextResponse.json(
+        { error: "OAuth provider is not configured", missingEnv },
+        { status: 500 },
+      );
+    }
+
+    const state = createOAuthState();
+    console.log(`[OAuth Init] Saving state for ${provider}`);
+
+    await oauthStorage.saveOAuthState({
+      state,
+      provider: config.provider,
+      tenantId,
+      userId: currentUser?.id,
+    });
+
+    const authUrl = config.getAuthUrl(state);
+    console.log(`[OAuth Init] Redirecting to: ${authUrl.substring(0, 100)}...`);
+
+    const response = NextResponse.redirect(authUrl);
+
+    response.cookies.set(config.stateCookie, state, {
+      httpOnly: true,
+      maxAge: 10 * 60,
+      path: "/",
+      sameSite: "lax",
+      secure: shouldUseSecureCookie(),
+    });
+
+    console.log(
+      `[OAuth Init] ${provider} redirect setup complete, secure: ${shouldUseSecureCookie()}`,
+    );
+    return response;
+  } catch (error) {
+    console.error(`[OAuth Init] Error:`, error);
     return NextResponse.json(
-      { error: "OAuth provider is not configured", missingEnv },
+      { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 },
     );
   }
-
-  const state = createOAuthState();
-  await oauthStorage.saveOAuthState({
-    state,
-    provider: config.provider,
-    tenantId,
-    userId: currentUser?.id,
-  });
-
-  const response = NextResponse.redirect(config.getAuthUrl(state));
-
-  response.cookies.set(config.stateCookie, state, {
-    httpOnly: true,
-    maxAge: 10 * 60,
-    path: "/",
-    sameSite: "lax",
-    secure: shouldUseSecureCookie(),
-  });
-
-  return response;
 }

@@ -35,7 +35,7 @@ function getAppUrl(): string {
   const url = (
     process.env.NEXT_PUBLIC_APP_URL?.trim() ||
     process.env.NEXT_PUBLIC_API_URL?.trim() ||
-    "http://localhost:3000"
+    "https://app.autowin.online"
   ).replace(/\/$/, "");
 
   // Force HTTPS on production (non-localhost)
@@ -53,7 +53,7 @@ function getRedirectUri(path: string): string {
 function getPostAuthRedirectUrl(): string {
   return (
     process.env.OAUTH_SUCCESS_REDIRECT_URL?.trim() ||
-    "http://localhost:3000/accounts"
+    "https://app.autowin.online/accounts"
   );
 }
 
