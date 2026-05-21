@@ -71,7 +71,10 @@ export function hashPassword(password: string): string {
   return `scrypt:v1:${salt}:${hash}`;
 }
 
-export function verifyPassword(password: string, storedHash: string | null): boolean {
+export function verifyPassword(
+  password: string,
+  storedHash: string | null,
+): boolean {
   if (!storedHash) return false;
   const [algorithm, version, salt, expected] = storedHash.split(":");
   if (algorithm !== "scrypt" || version !== "v1" || !salt || !expected) {
@@ -226,7 +229,11 @@ export async function loginWithPassword(params: {
       }
 
       const user = userResult.rows[0];
-      if (!user || user.status !== "active" || !verifyPassword(params.password, user.password_hash)) {
+      if (
+        !user ||
+        user.status !== "active" ||
+        !verifyPassword(params.password, user.password_hash)
+      ) {
         await client.query("ROLLBACK");
         throw new Error("Invalid username or password");
       }
@@ -243,12 +250,18 @@ export async function loginWithPassword(params: {
         [tenantId, user.id],
       );
 
-      const otherDeviceSession = activeSessions.rows.find(
-        (row) => String(row.device_id) !== deviceId,
-      );
-      if (otherDeviceSession) {
-        await client.query("ROLLBACK");
-        throw new Error("This account is already active on another device");
+      // Revoke all other active sessions from different devices
+      for (const session of activeSessions.rows) {
+        if (String(session.device_id) !== deviceId) {
+          await client.query(
+            `
+              UPDATE user_sessions
+              SET revoked_at = NOW()
+              WHERE id = $1
+            `,
+            [session.id],
+          );
+        }
       }
 
       await client.query(
@@ -314,7 +327,9 @@ export async function loginWithPassword(params: {
   });
 }
 
-export async function getCurrentUser(request: Request): Promise<CurrentUser | null> {
+export async function getCurrentUser(
+  request: Request,
+): Promise<CurrentUser | null> {
   const sessionToken = request.headers
     .get("cookie")
     ?.split(";")
@@ -381,10 +396,9 @@ export async function revokeCurrentSession(request: Request): Promise<void> {
   if (!user) return;
 
   await withClient((client) =>
-    client.query(
-      "UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1",
-      [user.sessionId],
-    ),
+    client.query("UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1", [
+      user.sessionId,
+    ]),
   );
 }
 

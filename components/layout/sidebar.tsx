@@ -2,14 +2,32 @@
 import { navItems } from '@/config/nav';
 import { useLanguageStore } from '@/store/language.store';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useState } from 'react';
 // import { useVideoStore } from '@/store/video.store';
 
 export default function Sidebar() {
     const pathname = usePathname();
+    const router = useRouter();
     const language = useLanguageStore((state) => state.language);
     const setLanguage = useLanguageStore((state) => state.setLanguage);
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
     // const selectedCount = useVideoStore((s) => s.selectedVideos.length);
+
+    const handleLogout = async () => {
+        setIsLoggingOut(true);
+        try {
+            const response = await fetch('/api/auth/logout', { method: 'POST' });
+            if (response.ok) {
+                router.push('/login');
+            }
+        } catch (error) {
+            console.error('Logout failed:', error);
+        } finally {
+            setIsLoggingOut(false);
+        }
+    };
+
     return (
         <aside className="fixed left-0 top-0 h-full w-56 bg-white border-r border-gray-200 flex flex-col z-20">
             <div className="px-5 py-5 border-b border-gray-100">
@@ -55,6 +73,13 @@ export default function Sidebar() {
                         </button>
                     ))}
                 </div>
+                <button
+                    onClick={handleLogout}
+                    disabled={isLoggingOut}
+                    className="w-full px-3 py-2 mb-3 text-xs font-medium text-white bg-red-600 hover:bg-red-700 disabled:bg-gray-400 rounded-lg transition-colors"
+                >
+                    {isLoggingOut ? 'Đang đăng xuất...' : 'Đăng xuất'}
+                </button>
                 <div className="text-xs text-gray-400">MVP v1.0</div>
             </div>
         </aside>

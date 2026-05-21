@@ -177,7 +177,7 @@ Meta may request this. Create a 3-5 minute video showing:
    - [ ] Video Demo: If available, upload here
 
 5. [ ] Include links:
-   - [ ] Privacy Policy: https://yourdomain.com/privacy-policy
+   - [ ] Privacy Policy: https://yourdomain.com/
    - [ ] Terms of Service: https://yourdomain.com/terms-of-service
    - [ ] Data Deletion: https://yourdomain.com/data-deletion
 
