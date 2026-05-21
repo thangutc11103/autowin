@@ -26,100 +26,125 @@ interface QueuePostRequest {
 }
 
 export async function GET(request: Request) {
-  const tenantId = getTenantIdFromRequest(request);
-  const currentUser = await getCurrentUser(request);
-  const posts = await listScheduledPosts({
-    tenantId,
-    userId:
-      currentUser && currentUser.role !== "owner" && currentUser.role !== "admin"
-        ? currentUser.id
-        : null,
-    limit: 100,
-  });
-  return NextResponse.json({ posts });
+  try {
+    const tenantId = getTenantIdFromRequest(request);
+    const currentUser = await getCurrentUser(request);
+    const posts = await listScheduledPosts({
+      tenantId,
+      userId:
+        currentUser &&
+        currentUser.role !== "owner" &&
+        currentUser.role !== "admin"
+          ? currentUser.id
+          : null,
+      limit: 100,
+    });
+    return NextResponse.json({ posts });
+  } catch (error) {
+    console.error("[GET /api/posting/queue]", error);
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to load posts",
+      },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(request: Request) {
-  const tenantId = getTenantIdFromRequest(request);
-  const currentUser = await getCurrentUser(request);
-  const body = (await request.json().catch(() => ({}))) as QueuePostRequest;
+  try {
+    const tenantId = getTenantIdFromRequest(request);
+    const currentUser = await getCurrentUser(request);
+    const body = (await request.json().catch(() => ({}))) as QueuePostRequest;
 
-  const queuePermissionError = await requireFeature({
-    request,
-    tenantId,
-    featureKey: "queue_post",
-  });
-  if (queuePermissionError) return queuePermissionError;
-
-  if (!body.video) {
-    return NextResponse.json({ error: "Missing video" }, { status: 400 });
-  }
-
-  if (!body.caption?.trim()) {
-    return NextResponse.json({ error: "Missing caption" }, { status: 400 });
-  }
-
-  if (!Array.isArray(body.accountTargets) || body.accountTargets.length === 0) {
-    return NextResponse.json(
-      { error: "Select at least one publishing account" },
-      { status: 400 },
-    );
-  }
-
-  for (const target of body.accountTargets) {
-    const publishPermissionError = await requireFeature({
+    const queuePermissionError = await requireFeature({
       request,
       tenantId,
-      featureKey: getPublishFeatureKey(target.platform),
+      featureKey: "queue_post",
     });
-    if (publishPermissionError) return publishPermissionError;
+    if (queuePermissionError) return queuePermissionError;
 
-    const accountPermissionError = await requireAccountPermission({
-      request,
-      tenantId,
-      accountKey: target.accountKey,
-      action: "post",
-    });
-    if (accountPermissionError) return accountPermissionError;
-  }
+    if (!body.video) {
+      return NextResponse.json({ error: "Missing video" }, { status: 400 });
+    }
 
-  const publishWindow = body.publishWindow === "now" ? "now" : "schedule";
-  const scheduledAt =
-    publishWindow === "schedule" && body.scheduledAt
-      ? new Date(body.scheduledAt).toISOString()
-      : null;
+    if (!body.caption?.trim()) {
+      return NextResponse.json({ error: "Missing caption" }, { status: 400 });
+    }
 
-  if (publishWindow === "schedule" && !scheduledAt) {
-    return NextResponse.json(
-      { error: "Select a scheduled publish time" },
-      { status: 400 },
-    );
-  }
+    if (
+      !Array.isArray(body.accountTargets) ||
+      body.accountTargets.length === 0
+    ) {
+      return NextResponse.json(
+        { error: "Select at least one publishing account" },
+        { status: 400 },
+      );
+    }
 
-  const post = await createQueuedPost({
-    tenantId,
-    userId: currentUser?.id,
-    video: body.video,
-    caption: body.caption.trim(),
-    publishWindow,
-    scheduledAt,
-    accountTargets: body.accountTargets,
-  });
-
-  const delayMs = scheduledAt
-    ? Math.max(0, new Date(scheduledAt).getTime() - Date.now())
-    : 0;
-
-  await Promise.all(
-    post.targets.map((target) =>
-      addPublishJob({
+    for (const target of body.accountTargets) {
+      const publishPermissionError = await requireFeature({
+        request,
         tenantId,
-        postId: post.id,
-        targetId: target.id,
-        delayMs,
-      }),
-    ),
-  );
+        featureKey: getPublishFeatureKey(target.platform),
+      });
+      if (publishPermissionError) return publishPermissionError;
 
-  return NextResponse.json({ success: true, post });
+      const accountPermissionError = await requireAccountPermission({
+        request,
+        tenantId,
+        accountKey: target.accountKey,
+        action: "post",
+      });
+      if (accountPermissionError) return accountPermissionError;
+    }
+
+    const publishWindow = body.publishWindow === "now" ? "now" : "schedule";
+    const scheduledAt =
+      publishWindow === "schedule" && body.scheduledAt
+        ? new Date(body.scheduledAt).toISOString()
+        : null;
+
+    if (publishWindow === "schedule" && !scheduledAt) {
+      return NextResponse.json(
+        { error: "Select a scheduled publish time" },
+        { status: 400 },
+      );
+    }
+
+    const post = await createQueuedPost({
+      tenantId,
+      userId: currentUser?.id,
+      video: body.video,
+      caption: body.caption.trim(),
+      publishWindow,
+      scheduledAt,
+      accountTargets: body.accountTargets,
+    });
+
+    const delayMs = scheduledAt
+      ? Math.max(0, new Date(scheduledAt).getTime() - Date.now())
+      : 0;
+
+    await Promise.all(
+      post.targets.map((target) =>
+        addPublishJob({
+          tenantId,
+          postId: post.id,
+          targetId: target.id,
+          delayMs,
+        }),
+      ),
+    );
+
+    return NextResponse.json({ success: true, post });
+  } catch (error) {
+    console.error("[POST /api/posting/queue]", error);
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to queue post",
+      },
+      { status: 500 },
+    );
+  }
 }

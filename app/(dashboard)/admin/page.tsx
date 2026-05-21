@@ -74,16 +74,25 @@ export default function AdminPage() {
   );
 
   async function loadUsers() {
-    const response = await fetch("/api/admin/users", { cache: "no-store" });
-    const result = await response.json();
+    try {
+      const response = await fetch("/api/admin/users", { cache: "no-store" });
 
-    if (!response.ok) {
-      throw new Error(result.error || "Failed to load users");
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+        throw new Error(error?.error || `Failed to load users: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log("[Admin Users API]", result);
+
+      setUsers(result.users || []);
+      setFeatureKeys(result.featureKeys || defaultFeatures);
+      setConnectedAccounts(result.connectedAccounts || []);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to load users";
+      console.error("[loadUsers error]", errorMessage, error);
+      throw error;
     }
-
-    setUsers(result.users || []);
-    setFeatureKeys(result.featureKeys || defaultFeatures);
-    setConnectedAccounts(result.connectedAccounts || []);
   }
 
   useEffect(() => {
@@ -249,9 +258,8 @@ export default function AdminPage() {
                     key={user.id}
                     type="button"
                     onClick={() => setSelectedUserId(user.id)}
-                    className={`block w-full px-4 py-3 text-left text-sm hover:bg-gray-50 ${
-                      selectedUserId === user.id ? "bg-blue-50" : ""
-                    }`}
+                    className={`block w-full px-4 py-3 text-left text-sm hover:bg-gray-50 ${selectedUserId === user.id ? "bg-blue-50" : ""
+                      }`}
                   >
                     <div className="font-semibold text-gray-950">{user.id}</div>
                     <div className="mt-1 text-gray-500">

@@ -4,7 +4,12 @@
 
 import type { OAuthAccount } from "@/lib/oauth-storage";
 
-export type OAuthProvider = "tiktok" | "meta" | "facebook" | "instagram" | "youtube";
+export type OAuthProvider =
+  | "tiktok"
+  | "meta"
+  | "facebook"
+  | "instagram"
+  | "youtube";
 
 interface TokenResponse {
   access_token: string;
@@ -27,11 +32,18 @@ interface OAuthProviderConfig {
 }
 
 function getAppUrl(): string {
-  return (
+  const url = (
     process.env.NEXT_PUBLIC_APP_URL?.trim() ||
     process.env.NEXT_PUBLIC_API_URL?.trim() ||
     "http://localhost:3000"
   ).replace(/\/$/, "");
+
+  // Force HTTPS on production (non-localhost)
+  if (!url.includes("localhost") && !url.startsWith("https://")) {
+    return url.replace("http://", "https://");
+  }
+
+  return url;
 }
 
 function getRedirectUri(path: string): string {
@@ -88,19 +100,22 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, OAuthProviderConfig> = {
       return `https://www.tiktok.com/v2/auth/authorize/?${params.toString()}`;
     },
     async exchangeCode(code: string) {
-      const response = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
+      const response = await fetch(
+        "https://open.tiktokapis.com/v2/oauth/token/",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            client_key: getEnv("TIKTOK_CLIENT_KEY"),
+            client_secret: getEnv("TIKTOK_CLIENT_SECRET"),
+            code,
+            grant_type: "authorization_code",
+            redirect_uri: getRedirectUri(this.callbackPath),
+          }).toString(),
         },
-        body: new URLSearchParams({
-          client_key: getEnv("TIKTOK_CLIENT_KEY"),
-          client_secret: getEnv("TIKTOK_CLIENT_SECRET"),
-          code,
-          grant_type: "authorization_code",
-          redirect_uri: getRedirectUri(this.callbackPath),
-        }).toString(),
-      });
+      );
 
       if (!response.ok) {
         throw createOAuthError("TikTok", response, await response.text());
@@ -140,19 +155,22 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, OAuthProviderConfig> = {
       return `https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`;
     },
     async exchangeCode(code: string) {
-      const response = await fetch("https://graph.facebook.com/v18.0/oauth/access_token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
+      const response = await fetch(
+        "https://graph.facebook.com/v18.0/oauth/access_token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            client_id: getEnv("META_APP_ID"),
+            client_secret: getEnv("META_APP_SECRET"),
+            grant_type: "authorization_code",
+            redirect_uri: getRedirectUri(this.callbackPath),
+            code,
+          }).toString(),
         },
-        body: new URLSearchParams({
-          client_id: getEnv("META_APP_ID"),
-          client_secret: getEnv("META_APP_SECRET"),
-          grant_type: "authorization_code",
-          redirect_uri: getRedirectUri(this.callbackPath),
-          code,
-        }).toString(),
-      });
+      );
 
       if (!response.ok) {
         throw createOAuthError("Meta", response, await response.text());
@@ -197,19 +215,22 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, OAuthProviderConfig> = {
       return `https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`;
     },
     async exchangeCode(code: string) {
-      const response = await fetch("https://graph.facebook.com/v18.0/oauth/access_token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
+      const response = await fetch(
+        "https://graph.facebook.com/v18.0/oauth/access_token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            client_id: getEnv("META_APP_ID"),
+            client_secret: getEnv("META_APP_SECRET"),
+            grant_type: "authorization_code",
+            redirect_uri: getRedirectUri(this.callbackPath),
+            code,
+          }).toString(),
         },
-        body: new URLSearchParams({
-          client_id: getEnv("META_APP_ID"),
-          client_secret: getEnv("META_APP_SECRET"),
-          grant_type: "authorization_code",
-          redirect_uri: getRedirectUri(this.callbackPath),
-          code,
-        }).toString(),
-      });
+      );
 
       if (!response.ok) {
         throw createOAuthError("Facebook", response, await response.text());
@@ -246,19 +267,22 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, OAuthProviderConfig> = {
       return `https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`;
     },
     async exchangeCode(code: string) {
-      const response = await fetch("https://graph.facebook.com/v18.0/oauth/access_token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
+      const response = await fetch(
+        "https://graph.facebook.com/v18.0/oauth/access_token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            client_id: getEnv("META_APP_ID"),
+            client_secret: getEnv("META_APP_SECRET"),
+            grant_type: "authorization_code",
+            redirect_uri: getRedirectUri(this.callbackPath),
+            code,
+          }).toString(),
         },
-        body: new URLSearchParams({
-          client_id: getEnv("META_APP_ID"),
-          client_secret: getEnv("META_APP_SECRET"),
-          grant_type: "authorization_code",
-          redirect_uri: getRedirectUri(this.callbackPath),
-          code,
-        }).toString(),
-      });
+      );
 
       if (!response.ok) {
         throw createOAuthError("Instagram", response, await response.text());
@@ -341,7 +365,10 @@ export function getOAuthProvider(provider: string): OAuthProviderConfig | null {
   return null;
 }
 
-export function getAccountsRedirect(provider: OAuthProvider, result: "success" | "error") {
+export function getAccountsRedirect(
+  provider: OAuthProvider,
+  result: "success" | "error",
+) {
   const redirectUrl = new URL(getPostAuthRedirectUrl());
   redirectUrl.searchParams.set("oauth", provider);
   redirectUrl.searchParams.set(result, "true");
@@ -361,7 +388,9 @@ export function createOAuthState(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
 
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
 }
 
 export function getTikTokAuthUrl(state: string): string {

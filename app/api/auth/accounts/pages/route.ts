@@ -38,7 +38,9 @@ function maskPage(page: OAuthAccountPage) {
   };
 }
 
-async function fetchMetaPages(userAccessToken: string): Promise<OAuthAccountPage[]> {
+async function fetchMetaPages(
+  userAccessToken: string,
+): Promise<OAuthAccountPage[]> {
   const url = new URL("https://graph.facebook.com/v18.0/me/accounts");
   url.searchParams.set(
     "fields",
@@ -88,105 +90,141 @@ async function fetchMetaPages(userAccessToken: string): Promise<OAuthAccountPage
 }
 
 export async function GET(request: Request) {
-  const tenantId = getTenantIdFromRequest(request);
-  const permissionError = await requireFeature({
-    request,
-    tenantId,
-    featureKey: "manage_accounts",
-  });
-  if (permissionError) return permissionError;
+  try {
+    const tenantId = getTenantIdFromRequest(request);
+    const permissionError = await requireFeature({
+      request,
+      tenantId,
+      featureKey: "manage_accounts",
+    });
+    if (permissionError) return permissionError;
 
-  const { searchParams } = new URL(request.url);
-  const accountKey = searchParams.get("accountKey") || undefined;
-  const pages = await oauthStorage.getAccountPages({ tenantId, accountKey });
+    const { searchParams } = new URL(request.url);
+    const accountKey = searchParams.get("accountKey") || undefined;
+    const pages = await oauthStorage.getAccountPages({ tenantId, accountKey });
 
-  return NextResponse.json({ pages: pages.map(maskPage) });
+    return NextResponse.json({ pages: pages.map(maskPage) });
+  } catch (error) {
+    console.error("[GET /api/auth/accounts/pages]", error);
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to load pages",
+      },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(request: Request) {
-  const tenantId = getTenantIdFromRequest(request);
-  const permissionError = await requireFeature({
-    request,
-    tenantId,
-    featureKey: "manage_accounts",
-  });
-  if (permissionError) return permissionError;
+  try {
+    const tenantId = getTenantIdFromRequest(request);
+    const permissionError = await requireFeature({
+      request,
+      tenantId,
+      featureKey: "manage_accounts",
+    });
+    if (permissionError) return permissionError;
 
-  const body = (await request.json().catch(() => ({}))) as {
-    accountKey?: string;
-  };
+    const body = (await request.json().catch(() => ({}))) as {
+      accountKey?: string;
+    };
 
-  if (!body.accountKey) {
-    return NextResponse.json({ error: "Missing account key" }, { status: 400 });
-  }
+    if (!body.accountKey) {
+      return NextResponse.json(
+        { error: "Missing account key" },
+        { status: 400 },
+      );
+    }
 
-  const account = await oauthStorage.getStoredAccount(body.accountKey, tenantId);
+    const account = await oauthStorage.getStoredAccount(
+      body.accountKey,
+      tenantId,
+    );
 
-  if (!account) {
-    return NextResponse.json({ error: "Account not found" }, { status: 404 });
-  }
+    if (!account) {
+      return NextResponse.json({ error: "Account not found" }, { status: 404 });
+    }
 
-  if (account.platform !== "facebook" && account.platform !== "instagram") {
+    if (account.platform !== "facebook" && account.platform !== "instagram") {
+      return NextResponse.json(
+        { error: "Page sync is only available for Meta accounts" },
+        { status: 400 },
+      );
+    }
+
+    const pages = (await fetchMetaPages(account.accessToken))
+      .filter((page) =>
+        account.platform === "instagram"
+          ? page.platform === "instagram"
+          : page.platform === "facebook",
+      )
+      .map((page) => ({
+        ...page,
+        tenantId,
+        accountKey: body.accountKey!,
+      }));
+
+    await oauthStorage.upsertAccountPages(pages, tenantId);
+    const savedPages = await oauthStorage.getAccountPages({
+      tenantId,
+      accountKey: body.accountKey,
+    });
+
+    return NextResponse.json({
+      success: true,
+      pages: savedPages.map(maskPage),
+    });
+  } catch (error) {
+    console.error("[POST /api/auth/accounts/pages]", error);
     return NextResponse.json(
-      { error: "Page sync is only available for Meta accounts" },
-      { status: 400 },
+      {
+        error: error instanceof Error ? error.message : "Failed to sync pages",
+      },
+      { status: 500 },
     );
   }
-
-  const pages = (await fetchMetaPages(account.accessToken))
-    .filter((page) =>
-      account.platform === "instagram"
-        ? page.platform === "instagram"
-        : page.platform === "facebook",
-    )
-    .map((page) => ({
-      ...page,
-      tenantId,
-      accountKey: body.accountKey!,
-    }));
-
-  await oauthStorage.upsertAccountPages(pages, tenantId);
-  const savedPages = await oauthStorage.getAccountPages({
-    tenantId,
-    accountKey: body.accountKey,
-  });
-
-  return NextResponse.json({
-    success: true,
-    pages: savedPages.map(maskPage),
-  });
 }
 
 export async function PATCH(request: Request) {
-  const tenantId = getTenantIdFromRequest(request);
-  const permissionError = await requireFeature({
-    request,
-    tenantId,
-    featureKey: "manage_accounts",
-  });
-  if (permissionError) return permissionError;
+  try {
+    const tenantId = getTenantIdFromRequest(request);
+    const permissionError = await requireFeature({
+      request,
+      tenantId,
+      featureKey: "manage_accounts",
+    });
+    if (permissionError) return permissionError;
 
-  const body = (await request.json().catch(() => ({}))) as {
-    accountKey?: string;
-    pageRecordId?: string;
-  };
+    const body = (await request.json().catch(() => ({}))) as {
+      accountKey?: string;
+      pageRecordId?: string;
+    };
 
-  if (!body.accountKey || !body.pageRecordId) {
+    if (!body.accountKey || !body.pageRecordId) {
+      return NextResponse.json(
+        { error: "Missing account key or page id" },
+        { status: 400 },
+      );
+    }
+
+    await oauthStorage.setDefaultAccountPage({
+      accountKey: body.accountKey,
+      pageRecordId: body.pageRecordId,
+      tenantId,
+    });
+
+    const pages = await oauthStorage.getAccountPages({
+      tenantId,
+      accountKey: body.accountKey,
+    });
+    return NextResponse.json({ success: true, pages: pages.map(maskPage) });
+  } catch (error) {
+    console.error("[PATCH /api/auth/accounts/pages]", error);
     return NextResponse.json(
-      { error: "Missing account key or page id" },
-      { status: 400 },
+      {
+        error: error instanceof Error ? error.message : "Failed to update page",
+      },
+      { status: 500 },
     );
   }
-
-  await oauthStorage.setDefaultAccountPage({
-    accountKey: body.accountKey,
-    pageRecordId: body.pageRecordId,
-    tenantId,
-  });
-
-  const pages = await oauthStorage.getAccountPages({
-    tenantId,
-    accountKey: body.accountKey,
-  });
-  return NextResponse.json({ success: true, pages: pages.map(maskPage) });
 }
