@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useLanguageStore } from '@/store/language.store';
 
-type OAuthPlatform = 'tiktok' | 'meta' | 'youtube';
+type OAuthPlatform = 'tiktok' | 'meta' | 'facebook' | 'instagram' | 'youtube';
 type PagePlatform = 'facebook' | 'instagram';
 
 interface OAuthAccountDebug {
@@ -59,12 +59,16 @@ interface PagesResponse {
 const PLATFORM_LABELS: Record<OAuthPlatform, string> = {
     tiktok: 'TikTok',
     meta: 'Meta',
+    facebook: 'Facebook',
+    instagram: 'Instagram',
     youtube: 'YouTube',
 };
 
 const PLATFORM_STYLES: Record<OAuthPlatform, string> = {
     tiktok: 'bg-rose-50 text-rose-700 ring-rose-100',
     meta: 'bg-blue-50 text-blue-700 ring-blue-100',
+    facebook: 'bg-sky-50 text-sky-700 ring-sky-100',
+    instagram: 'bg-amber-50 text-amber-700 ring-amber-100',
     youtube: 'bg-red-50 text-red-700 ring-red-100',
 };
 
@@ -79,13 +83,25 @@ const PAGE_PLATFORM_STYLES: Record<PagePlatform, string> = {
 };
 
 const CONNECT_LINKS: Array<{
-    platform: OAuthPlatform;
+    platform: 'tiktok' | 'meta' | 'youtube';
     href: string;
 }> = [
     { platform: 'tiktok', href: '/api/auth/tiktok' },
     { platform: 'meta', href: '/api/auth/meta' },
     { platform: 'youtube', href: '/api/auth/youtube' },
 ];
+
+const ACCOUNT_SECTIONS: OAuthPlatform[] = [
+    'tiktok',
+    'meta',
+    'facebook',
+    'instagram',
+    'youtube',
+];
+
+function isPageSyncPlatform(platform: OAuthPlatform) {
+    return platform === 'meta' || platform === 'facebook' || platform === 'instagram';
+}
 
 function formatDate(value?: string) {
     if (!value) return 'Unknown';
@@ -109,12 +125,15 @@ function displayAccountName(account: OAuthAccountDebug) {
 function groupAccounts(accounts: OAuthAccountDebug[]) {
     return accounts.reduce<Record<OAuthPlatform, OAuthAccountDebug[]>>(
         (groups, account) => {
+            groups[account.platform] ??= [];
             groups[account.platform].push(account);
             return groups;
         },
         {
             tiktok: [],
             meta: [],
+            facebook: [],
+            instagram: [],
             youtube: [],
         },
     );
@@ -421,32 +440,39 @@ export default function AccountsPage() {
                         </div>
                     ) : (
                         <div className="grid gap-5">
-                            {CONNECT_LINKS.map((item) => {
-                                const platformAccounts = groupedAccounts[item.platform];
+                            {ACCOUNT_SECTIONS.map((platform) => {
+                                const platformAccounts = groupedAccounts[platform];
+                                const connectLink = CONNECT_LINKS.find((item) => item.platform === platform);
 
                                 return (
-                                    <section key={item.platform} className="min-w-0">
+                                    <section key={platform} className="min-w-0">
                                         <div className="mb-2 flex items-center justify-between gap-3">
                                             <div className="flex items-center gap-2">
-                                                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${PLATFORM_STYLES[item.platform]}`}>
-                                                    {PLATFORM_LABELS[item.platform]}
+                                                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${PLATFORM_STYLES[platform]}`}>
+                                                    {PLATFORM_LABELS[platform]}
                                                 </span>
                                                 <span className="text-xs font-semibold text-gray-400">
                                                     {platformAccounts.length} account(s)
                                                 </span>
                                             </div>
-                                            <Link
-                                                href={item.href}
-                                                prefetch={false}
-                                                className="rounded-md bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-200"
-                                            >
-                                                Add account
-                                            </Link>
+                                            {connectLink ? (
+                                                <Link
+                                                    href={connectLink.href}
+                                                    prefetch={false}
+                                                    className="rounded-md bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-200"
+                                                >
+                                                    Add account
+                                                </Link>
+                                            ) : (
+                                                <span className="rounded-md bg-gray-50 px-2 py-1 text-xs font-semibold text-gray-400">
+                                                    Legacy
+                                                </span>
+                                            )}
                                         </div>
 
                                         {platformAccounts.length === 0 ? (
                                             <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
-                                                No {PLATFORM_LABELS[item.platform]} account connected.
+                                                No {PLATFORM_LABELS[platform]} account connected.
                                             </div>
                                         ) : (
                                             <div className="grid gap-3">
@@ -565,7 +591,7 @@ export default function AccountsPage() {
                                 </div>
                             </div>
 
-                            {activeAccount.platform === 'meta' && (
+                            {isPageSyncPlatform(activeAccount.platform) && (
                                 <div className="mt-5 rounded-lg border border-gray-100 bg-gray-50 p-3">
                                     <div className="flex items-center justify-between gap-3">
                                         <div>
