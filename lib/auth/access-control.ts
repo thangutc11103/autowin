@@ -464,6 +464,7 @@ export async function listManagedUsers(tenantIdInput?: string) {
         LEFT JOIN user_feature_permissions
           ON user_feature_permissions.user_id = users.id
           AND user_feature_permissions.tenant_id = tenant_members.tenant_id
+        WHERE users.id NOT LIKE 'oauth_%'
         GROUP BY users.id, tenant_members.tenant_id, tenant_members.role
         ORDER BY users.created_at DESC
       `,

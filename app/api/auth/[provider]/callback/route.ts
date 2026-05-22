@@ -9,11 +9,6 @@ import {
 } from "@/lib/oauth-utils";
 import { oauthStorage } from "@/lib/oauth-storage";
 import { getTenantIdFromRequest } from "@/lib/tenant-context";
-import {
-  createOAuthUser,
-  SESSION_COOKIE_NAME,
-  DEVICE_COOKIE_NAME,
-} from "@/lib/auth/session-auth";
 
 export const runtime = "nodejs";
 
@@ -146,37 +141,30 @@ export async function GET(
       tenantId,
     );
 
-    const tokenData = await config.exchangeCode(code);
-
-    // If user is anonymous, create new user + session
-    let finalUserId = userId;
-    let sessionToken: string | undefined;
-    let deviceId: string | undefined;
-
     if (!userId) {
-      console.log(
-        `[OAuth/${config.label}/Callback] Creating new user for anonymous OAuth`,
-      );
-      const newUserData = await createOAuthUser({
-        request,
-        email: null,
-        displayName: "New User",
+      await oauthStorage.addDebugEvent(
+        {
+          type: "oauth_error",
+          provider: config.provider,
+          message: `${config.label} callback missing authenticated app user`,
+          details: {
+            hasCode: true,
+            stateMatchesCookie,
+            stateMatchesDatabase,
+          },
+        },
         tenantId,
-      });
-      finalUserId = newUserData.user.id;
-      sessionToken = newUserData.sessionToken;
-      deviceId = newUserData.deviceId;
-
-      console.log(
-        `[OAuth/${config.label}/Callback] Created user ${finalUserId}, setting session`,
       );
+      return redirectWithClearedState(config.provider, config.stateCookie);
     }
+
+    const tokenData = await config.exchangeCode(code);
 
     const accounts = await config.toAccounts(tokenData);
 
     for (const account of accounts) {
       await oauthStorage.addAccount(
-        { ...account, userId: finalUserId },
+        { ...account, userId },
         tenantId,
       );
     }
@@ -191,24 +179,6 @@ export async function GET(
       sameSite: "lax",
       secure: shouldUseSecureCookie(),
     });
-
-    // Set session cookie if new user was created
-    if (sessionToken && deviceId) {
-      response.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
-        httpOnly: true,
-        maxAge: 14 * 24 * 60 * 60, // 14 days
-        path: "/",
-        sameSite: "lax",
-        secure: shouldUseSecureCookie(),
-      });
-      response.cookies.set(DEVICE_COOKIE_NAME, deviceId, {
-        httpOnly: true,
-        maxAge: 14 * 24 * 60 * 60,
-        path: "/",
-        sameSite: "lax",
-        secure: shouldUseSecureCookie(),
-      });
-    }
 
     return response;
   } catch (exchangeError) {

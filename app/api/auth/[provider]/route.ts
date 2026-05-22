@@ -40,6 +40,12 @@ export async function GET(
       );
     }
 
+    if (!currentUser) {
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("next", "/accounts");
+      return NextResponse.redirect(loginUrl);
+    }
+
     const missingEnv = getMissingEnv(config);
     if (missingEnv.length > 0) {
       console.error(
@@ -58,7 +64,7 @@ export async function GET(
       state,
       provider: config.provider,
       tenantId,
-      userId: currentUser?.id,
+      userId: currentUser.id,
     });
 
     const authUrl = config.getAuthUrl(state);
