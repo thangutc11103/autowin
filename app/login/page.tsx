@@ -40,11 +40,11 @@ export default function LoginPage() {
           AutoWin Content Dashboard
         </p>
         <h1 className="mt-2 text-2xl font-bold text-gray-950">
-          Dang nhap cong quan tri noi bo
+          Đăng nhập cổng quản trị nội bộ
         </h1>
         <p className="mt-2 text-sm leading-6 text-gray-600">
-          Chi tai khoan duoc cap quyen moi co the truy cap. Trang nay khong
-          phai trang dang nhap cua Facebook, Instagram, TikTok hay YouTube.
+          Chỉ tài khoản được cấp quyền mới có thể truy cập. Trang này không
+          phải trang đăng nhập của Facebook, Instagram, TikTok hay YouTube.
         </p>
       </section>
 
@@ -52,14 +52,14 @@ export default function LoginPage() {
         onSubmit={submit}
         className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
       >
-        <h2 className="text-lg font-bold text-gray-950">Tai khoan AutoWin</h2>
+        <h2 className="text-lg font-bold text-gray-950">Tài khoản AutoWin</h2>
         <p className="mt-1 text-sm text-gray-500">
-          Dang nhap bang tai khoan noi bo do quan tri vien AutoWin cap.
+          Đăng nhập bằng tài khoản nội bộ do quản trị viên AutoWin cấp.
         </p>
         <div className="mt-5 space-y-4">
           <label className="block">
             <span className="text-xs font-semibold uppercase text-gray-500">
-              Ten dang nhap hoac email
+              Tên đăng nhập hoặc email
             </span>
             <input
               value={login}
@@ -71,7 +71,7 @@ export default function LoginPage() {
           </label>
           <label className="block">
             <span className="text-xs font-semibold uppercase text-gray-500">
-              Mat khau noi bo
+              Mật khẩu nội bộ
             </span>
             <input
               type="password"
@@ -94,14 +94,14 @@ export default function LoginPage() {
           disabled={isSubmitting}
           className="mt-5 w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-blue-300"
         >
-          {isSubmitting ? "Dang dang nhap" : "Dang nhap"}
+          {isSubmitting ? "Đang đăng nhập" : "Đăng nhập"}
         </button>
       </form>
 
       <footer className="mt-8 max-w-sm text-center text-xs leading-5 text-gray-500">
         <p className="mb-2">
-          AutoWin su dung API chinh thuc cua cac nen tang sau khi ban ket noi
-          tai khoan trong dashboard.
+          AutoWin sử dụng API chính thức của các nền tảng sau khi bạn kết nối
+          tài khoản trong dashboard.
         </p>
         <a href="/privacy-policy" className="text-blue-600 hover:underline">
           Privacy Policy

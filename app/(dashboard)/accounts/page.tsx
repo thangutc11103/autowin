@@ -141,6 +141,7 @@ function groupAccounts(accounts: OAuthAccountDebug[]) {
 
 export default function AccountsPage() {
     const language = useLanguageStore((state) => state.language);
+    const vi = language === 'vi';
     const [accounts, setAccounts] = useState<OAuthAccountDebug[]>([]);
     const [debugEvents, setDebugEvents] = useState<OAuthDebugEvent[]>([]);
     const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -374,15 +375,15 @@ export default function AccountsPage() {
 
     return (
         <div className="flex h-full flex-col overflow-hidden bg-white">
-            <div className="flex-none border-b border-gray-100 px-6 py-4">
+            <div className="flex-none border-b border-gray-100 px-4 py-4 sm:px-6">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                         <h1 className="text-2xl font-bold text-gray-950">
-                            {language === 'vi' ? 'Tai khoan dang bai' : 'Publishing Accounts'}
+                            {vi ? 'Tài khoản đăng bài' : 'Publishing Accounts'}
                         </h1>
                         <p className="mt-1 text-sm text-gray-500">
-                            {language === 'vi'
-                                ? 'Ket noi nhieu tai khoan tren moi nen tang va dat ten de phan biet.'
+                            {vi
+                                ? 'Kết nối nhiều tài khoản trên mỗi nền tảng và đặt tên để dễ phân biệt.'
                                 : 'Connect multiple accounts per platform and name them for clarity.'}
                         </p>
                     </div>
@@ -395,7 +396,7 @@ export default function AccountsPage() {
                                 prefetch={false}
                                 className="rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
                             >
-                                Add {PLATFORM_LABELS[item.platform]}
+                                {vi ? `Thêm ${PLATFORM_LABELS[item.platform]}` : `Add ${PLATFORM_LABELS[item.platform]}`}
                             </Link>
                         ))}
                     </div>
@@ -403,17 +404,17 @@ export default function AccountsPage() {
 
                 <div className="mt-4 flex flex-wrap gap-2">
                     <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                        {accounts.length} account(s)
+                        {accounts.length} {vi ? 'tài khoản' : 'account(s)'}
                     </span>
                     <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 ring-1 ring-blue-100">
-                        {connectedPlatforms} platform(s)
+                        {connectedPlatforms} {vi ? 'nền tảng' : 'platform(s)'}
                     </span>
                     <button
                         type="button"
                         onClick={() => void loadAccounts()}
                         className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700 ring-1 ring-gray-200 hover:bg-gray-200"
                     >
-                        Refresh
+                        {vi ? 'Làm mới' : 'Refresh'}
                     </button>
                     {message ? (
                         <span className="rounded-full bg-yellow-50 px-3 py-1 text-xs font-semibold text-yellow-800 ring-1 ring-yellow-100">
@@ -423,18 +424,18 @@ export default function AccountsPage() {
                 </div>
             </div>
 
-            <div className="grid flex-1 gap-5 overflow-y-auto px-6 py-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="grid flex-1 gap-5 overflow-y-auto px-4 py-5 sm:px-6 xl:grid-cols-[minmax(0,1fr)_360px]">
                 <section className="min-w-0">
                     {isLoading ? (
                         <div className="flex min-h-96 items-center justify-center rounded-lg border border-dashed border-gray-200">
-                            <p className="text-sm font-semibold text-gray-500">Loading accounts...</p>
+                            <p className="text-sm font-semibold text-gray-500">{vi ? 'Đang tải tài khoản...' : 'Loading accounts...'}</p>
                         </div>
                     ) : accounts.length === 0 ? (
                         <div className="flex min-h-96 items-center justify-center rounded-lg border border-dashed border-gray-200">
                             <div className="max-w-sm px-6 text-center">
-                                <h2 className="text-sm font-semibold text-gray-900">No connected accounts</h2>
+                                <h2 className="text-sm font-semibold text-gray-900">{vi ? 'Chưa có tài khoản kết nối' : 'No connected accounts'}</h2>
                                 <p className="mt-1 text-sm text-gray-500">
-                                    Add accounts above. You can connect more than one account for the same platform.
+                                    {vi ? 'Thêm tài khoản ở phía trên. Bạn có thể kết nối nhiều tài khoản cho cùng một nền tảng.' : 'Add accounts above. You can connect more than one account for the same platform.'}
                                 </p>
                             </div>
                         </div>
@@ -452,7 +453,7 @@ export default function AccountsPage() {
                                                     {PLATFORM_LABELS[platform]}
                                                 </span>
                                                 <span className="text-xs font-semibold text-gray-400">
-                                                    {platformAccounts.length} account(s)
+                                                    {platformAccounts.length} {vi ? 'tài khoản' : 'account(s)'}
                                                 </span>
                                             </div>
                                             {connectLink ? (
@@ -461,18 +462,18 @@ export default function AccountsPage() {
                                                     prefetch={false}
                                                     className="rounded-md bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-200"
                                                 >
-                                                    Add account
+                                                    {vi ? 'Thêm tài khoản' : 'Add account'}
                                                 </Link>
                                             ) : (
                                                 <span className="rounded-md bg-gray-50 px-2 py-1 text-xs font-semibold text-gray-400">
-                                                    Legacy
+                                                    {vi ? 'Dữ liệu cũ' : 'Legacy'}
                                                 </span>
                                             )}
                                         </div>
 
                                         {platformAccounts.length === 0 ? (
                                             <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
-                                                No {PLATFORM_LABELS[platform]} account connected.
+                                                {vi ? `Chưa kết nối tài khoản ${PLATFORM_LABELS[platform]}.` : `No ${PLATFORM_LABELS[platform]} account connected.`}
                                             </div>
                                         ) : (
                                             <div className="grid gap-3">
@@ -496,7 +497,7 @@ export default function AccountsPage() {
                                                                         {PLATFORM_LABELS[account.platform]}
                                                                     </span>
                                                                     <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                                                                        Connected
+                                                                        {vi ? 'Đã kết nối' : 'Connected'}
                                                                     </span>
                                                                 </div>
                                                                 <h2 className="truncate text-sm font-bold text-gray-950">
@@ -507,13 +508,13 @@ export default function AccountsPage() {
                                                                 </p>
                                                             </div>
                                                             <div>
-                                                                <p className="text-xs font-semibold uppercase text-gray-400">Scopes</p>
+                                                                <p className="text-xs font-semibold uppercase text-gray-400">Scope</p>
                                                                 <p className="mt-1 line-clamp-2 text-xs font-semibold text-gray-700">
                                                                     {scopes.length > 0 ? scopes.join(', ') : 'unknown'}
                                                                 </p>
                                                             </div>
                                                             <div className="text-right">
-                                                                <p className="text-xs font-semibold uppercase text-gray-400">Connected</p>
+                                                                <p className="text-xs font-semibold uppercase text-gray-400">{vi ? 'Kết nối lúc' : 'Connected'}</p>
                                                                 <p className="mt-1 text-xs font-semibold text-gray-700">
                                                                     {formatDate(account.connectedAt)}
                                                                 </p>
@@ -534,13 +535,13 @@ export default function AccountsPage() {
                     {activeAccount ? (
                         <section className="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
                             <div className="mb-3 flex items-center justify-between gap-3">
-                                <h2 className="text-sm font-bold text-gray-950">Account details</h2>
+                                <h2 className="text-sm font-bold text-gray-950">{vi ? 'Chi tiết tài khoản' : 'Account details'}</h2>
                                 <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${PLATFORM_STYLES[activeAccount.platform]}`}>
                                     {PLATFORM_LABELS[activeAccount.platform]}
                                 </span>
                             </div>
 
-                            <label className="text-xs font-semibold uppercase text-gray-400">Display name</label>
+                            <label className="text-xs font-semibold uppercase text-gray-400">{vi ? 'Tên hiển thị' : 'Display name'}</label>
                             <input
                                 value={draftLabels[activeAccount.key] || ''}
                                 onChange={(event) =>
@@ -549,22 +550,22 @@ export default function AccountsPage() {
                                         [activeAccount.key]: event.target.value,
                                     }))
                                 }
-                                placeholder="Example: TikTok main, YouTube backup"
+                                placeholder={vi ? 'Ví dụ: TikTok chính, YouTube phụ' : 'Example: TikTok main, YouTube backup'}
                                 className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-900 outline-none focus:border-blue-500"
                             />
                             <p className="mt-2 text-xs text-gray-500">
-                                This name is only for your dashboard, so you can tell accounts apart.
+                                {vi ? 'Tên này chỉ dùng trong dashboard để bạn phân biệt các tài khoản.' : 'This name is only for your dashboard, so you can tell accounts apart.'}
                             </p>
 
                             <div className="mt-4 grid gap-3 text-sm">
                                 <div>
-                                    <p className="text-xs font-semibold uppercase text-gray-400">Provider identity</p>
+                                    <p className="text-xs font-semibold uppercase text-gray-400">{vi ? 'Định danh nhà cung cấp' : 'Provider identity'}</p>
                                     <p className="mt-1 break-all font-semibold text-gray-900">
                                         {activeAccount.handle || activeAccount.displayName || activeAccount.key}
                                     </p>
                                 </div>
                                 <div>
-                                    <p className="text-xs font-semibold uppercase text-gray-400">Connected at</p>
+                                    <p className="text-xs font-semibold uppercase text-gray-400">{vi ? 'Kết nối lúc' : 'Connected at'}</p>
                                     <p className="mt-1 font-semibold text-gray-900">
                                         {formatDate(activeAccount.connectedAt)}
                                     </p>
@@ -577,7 +578,7 @@ export default function AccountsPage() {
                                     </p>
                                 </div>
                                 <div>
-                                    <p className="text-xs font-semibold uppercase text-gray-400">Scopes</p>
+                                    <p className="text-xs font-semibold uppercase text-gray-400">Scope</p>
                                     <div className="mt-2 flex flex-wrap gap-2">
                                         {splitScopes(activeAccount.scope).map((scope) => (
                                             <span key={scope} className="rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700">
@@ -595,9 +596,9 @@ export default function AccountsPage() {
                                 <div className="mt-5 rounded-lg border border-gray-100 bg-gray-50 p-3">
                                     <div className="flex items-center justify-between gap-3">
                                         <div>
-                                            <h3 className="text-sm font-bold text-gray-950">Page targets</h3>
+                                            <h3 className="text-sm font-bold text-gray-950">{vi ? 'Page đăng bài' : 'Page targets'}</h3>
                                             <p className="mt-1 text-xs text-gray-500">
-                                                Sync Pages and choose the default publishing target.
+                                                {vi ? 'Đồng bộ Page và chọn mục tiêu đăng mặc định.' : 'Sync Pages and choose the default publishing target.'}
                                             </p>
                                         </div>
                                         <button
@@ -606,14 +607,14 @@ export default function AccountsPage() {
                                             disabled={isSyncingPages}
                                             className="rounded-md bg-white px-3 py-2 text-xs font-semibold text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                                         >
-                                            {isSyncingPages ? 'Syncing' : 'Sync pages'}
+                                            {isSyncingPages ? (vi ? 'Đang đồng bộ' : 'Syncing') : (vi ? 'Đồng bộ Page' : 'Sync pages')}
                                         </button>
                                     </div>
 
                                     <div className="mt-3 grid gap-2">
                                         {activePages.length === 0 ? (
                                             <p className="rounded-lg border border-dashed border-gray-200 bg-white px-3 py-2 text-xs text-gray-500">
-                                                No Pages synced yet.
+                                                {vi ? 'Chưa có Page nào được đồng bộ.' : 'No Pages synced yet.'}
                                             </p>
                                         ) : (
                                             activePages.map((page) => (
@@ -631,9 +632,7 @@ export default function AccountsPage() {
                                                                 ) : null}
                                                             </div>
                                                             <p className="truncate text-sm font-semibold text-gray-950">{page.pageName}</p>
-                                                            <p className="mt-1 truncate text-xs text-gray-500">
-                                                                Page ID: {page.pageId}
-                                                            </p>
+                                                            <p className="mt-1 truncate text-xs text-gray-500">Page ID: {page.pageId}</p>
                                                             {page.instagramBusinessAccountId ? (
                                                                 <p className="mt-1 truncate text-xs text-gray-500">
                                                                     IG: {page.instagramUsername || page.instagramBusinessAccountId}
@@ -646,7 +645,7 @@ export default function AccountsPage() {
                                                             disabled={page.isDefault}
                                                             className="shrink-0 rounded-md bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                                                         >
-                                                            Set default
+                                                            {vi ? 'Đặt mặc định' : 'Set default'}
                                                         </button>
                                                     </div>
                                                 </div>
@@ -663,7 +662,7 @@ export default function AccountsPage() {
                                     disabled={isSavingKey === activeAccount.key}
                                     className="flex-1 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
                                 >
-                                    {isSavingKey === activeAccount.key ? 'Saving' : 'Save name'}
+                                    {isSavingKey === activeAccount.key ? (vi ? 'Đang lưu' : 'Saving') : (vi ? 'Lưu tên' : 'Save name')}
                                 </button>
                                 <button
                                     type="button"
@@ -671,19 +670,19 @@ export default function AccountsPage() {
                                     disabled={isSavingKey === activeAccount.key}
                                     className="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                    Disconnect
+                                    {vi ? 'Ngắt kết nối' : 'Disconnect'}
                                 </button>
                             </div>
                         </section>
                     ) : (
                         <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center">
-                            <p className="text-sm text-gray-600">Connect an account to see details.</p>
+                            <p className="text-sm text-gray-600">{vi ? 'Kết nối tài khoản để xem chi tiết.' : 'Connect an account to see details.'}</p>
                         </div>
                     )}
 
                     <section className="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
                         <div className="mb-3 flex items-center justify-between gap-3">
-                            <h2 className="text-sm font-bold text-gray-950">OAuth debug</h2>
+                            <h2 className="text-sm font-bold text-gray-950">{vi ? 'Nhật ký OAuth' : 'OAuth debug'}</h2>
                             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
                                 {debugEvents.length} event(s)
                             </span>
@@ -691,7 +690,7 @@ export default function AccountsPage() {
                         <div className="grid max-h-96 gap-2 overflow-y-auto">
                             {debugEvents.length === 0 ? (
                                 <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
-                                    No OAuth events yet.
+                                    {vi ? 'Chưa có sự kiện OAuth.' : 'No OAuth events yet.'}
                                 </p>
                             ) : (
                                 debugEvents.slice(0, 10).map((event) => (

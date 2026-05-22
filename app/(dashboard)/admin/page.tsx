@@ -1,8 +1,9 @@
 "use client";
 
-/* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
 
 import { useEffect, useMemo, useState } from "react";
+import { useLanguageStore } from "@/store/language.store";
 
 type Role = "owner" | "admin" | "editor" | "viewer";
 type Status = "active" | "suspended";
@@ -50,7 +51,76 @@ const defaultFeatures = [
   "ai_video_edit",
 ];
 
+const TEXT = {
+  vi: {
+    title: "Quản trị",
+    description: "Quản lý người dùng, vai trò và quyền truy cập tính năng cho tenant này.",
+    newUser: "Người dùng mới",
+    users: "Người dùng",
+    noUsers: "Chưa có người dùng được quản lý.",
+    noEmail: "Chưa có email",
+    userAccess: "Quyền truy cập người dùng",
+    userId: "Mã người dùng",
+    email: "Email",
+    displayName: "Tên hiển thị",
+    password: "Mật khẩu",
+    role: "Vai trò",
+    status: "Trạng thái",
+    placeholderUser: "user_123 hoặc email",
+    placeholderName: "Thành viên đội",
+    placeholderPasswordNew: "Tối thiểu 8 ký tự",
+    placeholderPasswordEdit: "Để trống nếu giữ nguyên",
+    featurePermissions: "Quyền tính năng",
+    accountPermissions: "Quyền tài khoản",
+    noAccounts: "Chưa có tài khoản nào được kết nối.",
+    signOutDevices: "Đăng xuất thiết bị",
+    saving: "Đang lưu",
+    saveAccess: "Lưu quyền",
+    saved: "Đã lưu quyền người dùng.",
+    sessionsRevoked: "Đã thu hồi phiên đăng nhập.",
+    failedRevoke: "Không thể thu hồi phiên đăng nhập",
+    requiredUser: "Cần nhập mã người dùng.",
+    failedSave: "Không thể lưu người dùng",
+    failedLoad: "Không thể tải người dùng",
+    accountActions: { canView: "Xem", canPost: "Đăng", canEdit: "Sửa" },
+  },
+  en: {
+    title: "Admin",
+    description: "Manage users, roles, and feature access for this tenant.",
+    newUser: "New user",
+    users: "Users",
+    noUsers: "No managed users yet.",
+    noEmail: "No email",
+    userAccess: "User access",
+    userId: "User ID",
+    email: "Email",
+    displayName: "Display name",
+    password: "Password",
+    role: "Role",
+    status: "Status",
+    placeholderUser: "user_123 or email",
+    placeholderName: "Team member",
+    placeholderPasswordNew: "Min 8 characters",
+    placeholderPasswordEdit: "Leave blank to keep",
+    featurePermissions: "Feature permissions",
+    accountPermissions: "Account permissions",
+    noAccounts: "No connected accounts yet.",
+    signOutDevices: "Sign out devices",
+    saving: "Saving",
+    saveAccess: "Save access",
+    saved: "User permissions saved.",
+    sessionsRevoked: "User sessions revoked.",
+    failedRevoke: "Failed to revoke sessions",
+    requiredUser: "User id is required.",
+    failedSave: "Failed to save user",
+    failedLoad: "Failed to load users",
+    accountActions: { canView: "View", canPost: "Post", canEdit: "Edit" },
+  },
+};
+
 export default function AdminPage() {
+  const language = useLanguageStore((state) => state.language);
+  const text = TEXT[language];
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [featureKeys, setFeatureKeys] = useState<string[]>(defaultFeatures);
   const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([]);
@@ -89,7 +159,7 @@ export default function AdminPage() {
       setFeatureKeys(result.featureKeys || defaultFeatures);
       setConnectedAccounts(result.connectedAccounts || []);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Failed to load users";
+      const errorMessage = error instanceof Error ? error.message : text.failedLoad;
       console.error("[loadUsers error]", errorMessage, error);
       throw error;
     }
@@ -97,7 +167,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     loadUsers().catch((error) => {
-      setMessage(error instanceof Error ? error.message : "Failed to load users");
+      setMessage(error instanceof Error ? error.message : text.failedLoad);
     });
   }, []);
 
@@ -163,7 +233,7 @@ export default function AdminPage() {
     setMessage(null);
 
     if (!form.id.trim()) {
-      setMessage("User id is required.");
+      setMessage(text.requiredUser);
       return;
     }
 
@@ -195,9 +265,9 @@ export default function AdminPage() {
 
       setUsers(result.users || []);
       setSelectedUserId(form.id.trim());
-      setMessage("User permissions saved.");
+      setMessage(text.saved);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to save user");
+      setMessage(error instanceof Error ? error.message : text.failedSave);
     } finally {
       setIsSaving(false);
     }
@@ -219,12 +289,12 @@ export default function AdminPage() {
 
   return (
     <div className="h-full overflow-auto bg-gray-50">
-      <div className="mx-auto max-w-7xl px-6 py-6">
-        <div className="mb-5 flex items-center justify-between">
+      <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-6">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-gray-950">Admin</h1>
+            <h1 className="text-2xl font-bold text-gray-950">{text.title}</h1>
             <p className="mt-1 text-sm text-gray-500">
-              Manage users, roles, and feature access for this tenant.
+              {text.description}
             </p>
           </div>
           <button
@@ -232,7 +302,7 @@ export default function AdminPage() {
             onClick={resetForm}
             className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
           >
-            New user
+            {text.newUser}
           </button>
         </div>
 
@@ -245,12 +315,12 @@ export default function AdminPage() {
         <div className="grid gap-5 lg:grid-cols-[360px_1fr]">
           <section className="rounded-lg border border-gray-200 bg-white">
             <div className="border-b border-gray-200 px-4 py-3">
-              <h2 className="text-sm font-bold text-gray-950">Users</h2>
+              <h2 className="text-sm font-bold text-gray-950">{text.users}</h2>
             </div>
             <div className="divide-y divide-gray-100">
               {users.length === 0 ? (
                 <div className="px-4 py-8 text-sm text-gray-500">
-                  No managed users yet.
+                  {text.noUsers}
                 </div>
               ) : (
                 users.map((user) => (
@@ -263,7 +333,7 @@ export default function AdminPage() {
                   >
                     <div className="font-semibold text-gray-950">{user.id}</div>
                     <div className="mt-1 text-gray-500">
-                      {user.email || "No email"} - {user.role} - {user.status}
+                      {user.email || text.noEmail} - {user.role} - {user.status}
                     </div>
                   </button>
                 ))
@@ -273,12 +343,12 @@ export default function AdminPage() {
 
           <section className="rounded-lg border border-gray-200 bg-white">
             <div className="border-b border-gray-200 px-5 py-4">
-              <h2 className="text-sm font-bold text-gray-950">User access</h2>
+              <h2 className="text-sm font-bold text-gray-950">{text.userAccess}</h2>
             </div>
             <div className="grid gap-4 p-5 md:grid-cols-2">
               <label className="block">
                 <span className="text-xs font-semibold uppercase text-gray-500">
-                  User ID
+                  {text.userId}
                 </span>
                 <input
                   value={form.id}
@@ -286,13 +356,13 @@ export default function AdminPage() {
                     setForm((current) => ({ ...current, id: event.target.value }))
                   }
                   className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500"
-                  placeholder="user_123 or email"
+                  placeholder={text.placeholderUser}
                 />
               </label>
 
               <label className="block">
                 <span className="text-xs font-semibold uppercase text-gray-500">
-                  Email
+                  {text.email}
                 </span>
                 <input
                   value={form.email}
@@ -306,7 +376,7 @@ export default function AdminPage() {
 
               <label className="block">
                 <span className="text-xs font-semibold uppercase text-gray-500">
-                  Display name
+                  {text.displayName}
                 </span>
                 <input
                   value={form.displayName}
@@ -317,14 +387,14 @@ export default function AdminPage() {
                     }))
                   }
                   className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500"
-                  placeholder="Team member"
+                  placeholder={text.placeholderName}
                 />
               </label>
 
               <div className="grid grid-cols-2 gap-3">
                 <label className="block">
                   <span className="text-xs font-semibold uppercase text-gray-500">
-                    Password
+                    {text.password}
                   </span>
                   <input
                     type="password"
@@ -336,13 +406,13 @@ export default function AdminPage() {
                       }))
                     }
                     className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500"
-                    placeholder={selectedUser ? "Leave blank to keep" : "Min 8 characters"}
+                    placeholder={selectedUser ? text.placeholderPasswordEdit : text.placeholderPasswordNew}
                   />
                 </label>
 
                 <label className="block">
                   <span className="text-xs font-semibold uppercase text-gray-500">
-                    Role
+                    {text.role}
                   </span>
                   <select
                     value={form.role}
@@ -364,7 +434,7 @@ export default function AdminPage() {
 
                 <label className="block">
                   <span className="text-xs font-semibold uppercase text-gray-500">
-                    Status
+                    {text.status}
                   </span>
                   <select
                     value={form.status}
@@ -385,7 +455,7 @@ export default function AdminPage() {
 
             <div className="border-t border-gray-200 px-5 py-4">
               <h3 className="mb-3 text-sm font-bold text-gray-950">
-                Feature permissions
+                {text.featurePermissions}
               </h3>
               <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                 {featureKeys.map((featureKey) => (
@@ -407,11 +477,11 @@ export default function AdminPage() {
 
             <div className="border-t border-gray-200 px-5 py-4">
               <h3 className="mb-3 text-sm font-bold text-gray-950">
-                Account permissions
+                {text.accountPermissions}
               </h3>
               {connectedAccounts.length === 0 ? (
                 <div className="rounded-md border border-gray-200 px-3 py-3 text-sm text-gray-500">
-                  No connected accounts yet.
+                  {text.noAccounts}
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -451,7 +521,7 @@ export default function AdminPage() {
                                   }
                                   className="h-4 w-4"
                                 />
-                                <span>{field.replace("can", "")}</span>
+                                <span>{text.accountActions[field]}</span>
                               </label>
                             ),
                           )}
@@ -477,13 +547,13 @@ export default function AdminPage() {
                     const result = await response.json().catch(() => ({}));
                     setMessage(
                       response.ok
-                        ? "User sessions revoked."
-                        : result.error || "Failed to revoke sessions",
+                        ? text.sessionsRevoked
+                        : result.error || text.failedRevoke,
                     );
                   }}
                   className="mr-3 rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
                 >
-                  Sign out devices
+                  {text.signOutDevices}
                 </button>
               ) : null}
               <button
@@ -492,7 +562,7 @@ export default function AdminPage() {
                 disabled={isSaving}
                 className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
               >
-                {isSaving ? "Saving" : "Save access"}
+                {isSaving ? text.saving : text.saveAccess}
               </button>
             </div>
           </section>

@@ -21,6 +21,23 @@ export interface PlatformFilterConfig {
   }[];
 }
 
+const accountField = {
+  key: "ten_kenh_tai_khoan",
+  label: "Tài khoản/Kênh",
+  placeholder: "@saito, @dt_11103",
+  type: "text" as const,
+};
+
+const limitField = {
+  key: "limit",
+  label: "Số video tối đa",
+  type: "slider" as const,
+  min: 1,
+  max: 50,
+  step: 1,
+  defaultValue: 1,
+};
+
 export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
   {
     platform: "tiktok",
@@ -32,8 +49,8 @@ export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
         fields: [
           {
             key: "search",
-            label: "Search keyword",
-            placeholder: "ha noi, food review",
+            label: "Từ khóa tìm kiếm",
+            placeholder: "hà nội, food review",
             type: "text",
           },
           {
@@ -48,21 +65,8 @@ export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
             placeholder: "#trending, #fyp",
             type: "text",
           },
-          {
-            key: "ten_kenh_tai_khoan",
-            label: "Tài khoản/Kênh",
-            placeholder: "@saito, @dt_11103",
-            type: "text",
-          },
-          {
-            key: "limit",
-            label: "Số video tối đa",
-            type: "slider",
-            min: 1,
-            max: 50,
-            step: 1,
-            defaultValue: 1,
-          },
+          accountField,
+          limitField,
         ],
       },
     ],
@@ -76,20 +80,10 @@ export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
         label: "Bộ lọc",
         fields: [
           {
-            key: "ten_kenh_tai_khoan",
-            label: "Tài khoản/Kênh",
+            ...accountField,
             placeholder: "metavietnam, vtv24",
-            type: "text",
           },
-          {
-            key: "limit",
-            label: "Số video tối đa",
-            type: "slider",
-            min: 1,
-            max: 50,
-            step: 1,
-            defaultValue: 1,
-          },
+          limitField,
         ],
       },
     ],
@@ -100,7 +94,7 @@ export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
     emoji: "IG",
     sections: [
       {
-        label: "Bo loc",
+        label: "Bộ lọc",
         fields: [
           {
             key: "hashtag",
@@ -109,20 +103,10 @@ export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
             type: "text",
           },
           {
-            key: "ten_kenh_tai_khoan",
-            label: "Tai khoan/Kenh",
+            ...accountField,
             placeholder: "@saito, @dt_11103, lenti_2026",
-            type: "text",
           },
-          {
-            key: "limit",
-            label: "So video toi da",
-            type: "slider",
-            min: 1,
-            max: 50,
-            step: 1,
-            defaultValue: 1,
-          },
+          limitField,
         ],
       },
     ],
@@ -133,7 +117,7 @@ export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
     emoji: "YT",
     sections: [
       {
-        label: "Bo loc",
+        label: "Bộ lọc",
         fields: [
           {
             key: "hashtag",
@@ -142,20 +126,10 @@ export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
             type: "text",
           },
           {
-            key: "ten_kenh_tai_khoan",
-            label: "Tai khoan/Kenh",
+            ...accountField,
             placeholder: "@saito, @dt_11103, @SigmaDuck777",
-            type: "text",
           },
-          {
-            key: "limit",
-            label: "So video toi da",
-            type: "slider",
-            min: 1,
-            max: 50,
-            step: 1,
-            defaultValue: 1,
-          },
+          limitField,
         ],
       },
     ],

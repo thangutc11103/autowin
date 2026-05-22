@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
+import { useLanguageStore, type AppLanguage } from '@/store/language.store';
 import { useVideoStore } from '@/store/video.store';
 import type { Platform, Video } from '@/types/video';
 
@@ -42,27 +43,110 @@ const PLATFORM_LABELS: Record<Platform, string> = {
     youtube: 'YouTube',
 };
 
-function EmptyState({ tab }: { tab: SelectedTab }) {
-    const message =
-        tab === 'selected'
-            ? 'No videos in the temporary selection.'
-            : tab === 'upload'
-                ? 'No upload files selected.'
-                : 'No videos saved for posting yet.';
+const TEXT = {
+    vi: {
+        title: 'Video đã chọn',
+        description: 'Xem lại video tạm chọn, sau đó lưu video đã duyệt để chuẩn bị đăng bài.',
+        selected: 'Đã chọn',
+        upload: 'Tải lên',
+        posting: 'Sẵn sàng đăng',
+        clearSelected: 'Xóa mục đã chọn',
+        clearUpload: 'Xóa bản tải lên',
+        clearPosting: 'Xóa danh sách sẵn sàng',
+        empty: {
+            selected: 'Chưa có video trong danh sách tạm chọn.',
+            upload: 'Chưa chọn tệp video nào.',
+            posting: 'Chưa có video sẵn sàng để đăng.',
+        },
+        emptyHint: {
+            selected: 'Bấm + Chọn ở trang Khám phá để thêm video vào đây.',
+            upload: 'Chọn tệp video từ máy tính để thêm thẳng vào danh sách sẵn sàng đăng.',
+            posting: 'Tick video trong tab Đã chọn, rồi lưu vào danh sách này.',
+        },
+        selectBadge: 'Chọn',
+        uploadBadge: 'Tải lên',
+        postBadge: 'Đăng',
+        uploadTitle: 'Tải video thẳng vào danh sách Sẵn sàng đăng',
+        uploadDescription: 'Chọn một hoặc nhiều tệp video từ máy tính này.',
+        titleField: 'Tiêu đề',
+        platformField: 'Nền tảng',
+        remove: 'Xóa',
+        uploading: 'Đang tải lên',
+        addToReady: (count: number) => `Thêm ${count} video vào Sẵn sàng đăng`,
+        noThumbnail: 'Không có ảnh',
+        saved: 'Đã lưu',
+        marked: (marked: number, unsaved: number) => `${marked} video được đánh dấu để lưu, ${unsaved} video chưa lưu.`,
+        uncheckAll: 'Bỏ chọn tất cả',
+        checkUnsaved: 'Chọn video chưa lưu',
+        markedFooter: 'đã đánh dấu để đăng',
+        save: 'Lưu',
+        preparing: 'Đang chuẩn bị',
+        localOnly: 'Chỉ local',
+        r2Ready: 'R2 sẵn sàng',
+        preparingBadge: 'Đang chuẩn bị',
+        openR2: 'Mở file R2',
+        openLocal: 'Mở file local',
+        openFile: 'Mở file',
+    },
+    en: {
+        title: 'Selected Videos',
+        description: 'Review temporary selections, then save approved videos for posting.',
+        selected: 'Selected',
+        upload: 'Upload',
+        posting: 'Ready to Post',
+        clearSelected: 'Clear Selected',
+        clearUpload: 'Clear Upload',
+        clearPosting: 'Clear Ready',
+        empty: {
+            selected: 'No videos in the temporary selection.',
+            upload: 'No upload files selected.',
+            posting: 'No videos saved for posting yet.',
+        },
+        emptyHint: {
+            selected: 'Use + Select on Discover videos to add them here.',
+            upload: 'Choose video files to add them straight into Ready to Post.',
+            posting: 'Tick videos in Selected, then save them to this list.',
+        },
+        selectBadge: 'Select',
+        uploadBadge: 'Upload',
+        postBadge: 'Post',
+        uploadTitle: 'Upload video straight to Ready to Post',
+        uploadDescription: 'Select one or more video files from this computer.',
+        titleField: 'Title',
+        platformField: 'Platform',
+        remove: 'Remove',
+        uploading: 'Uploading',
+        addToReady: (count: number) => `Add ${count} to Ready to Post`,
+        noThumbnail: 'No thumbnail',
+        saved: 'Saved',
+        marked: (marked: number, unsaved: number) => `${marked} marked for saving, ${unsaved} not saved yet.`,
+        uncheckAll: 'Uncheck all',
+        checkUnsaved: 'Check unsaved',
+        markedFooter: 'marked for posting',
+        save: 'Save',
+        preparing: 'Preparing',
+        localOnly: 'Local only',
+        r2Ready: 'R2 ready',
+        preparingBadge: 'Preparing',
+        openR2: 'Open R2 file',
+        openLocal: 'Open local file',
+        openFile: 'Open file',
+    },
+};
+
+function EmptyState({ tab, language }: { tab: SelectedTab; language: AppLanguage }) {
+    const text = TEXT[language];
+    const message = text.empty[tab];
 
     return (
         <div className="flex min-h-80 items-center justify-center rounded-lg border border-dashed border-gray-200 bg-white">
             <div className="px-6 text-center">
                 <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-gray-50 text-sm font-semibold text-gray-400">
-                    {tab === 'selected' ? 'Select' : tab === 'upload' ? 'Upload' : 'Post'}
+                    {tab === 'selected' ? text.selectBadge : tab === 'upload' ? text.uploadBadge : text.postBadge}
                 </div>
                 <h2 className="text-sm font-semibold text-gray-900">{message}</h2>
                 <p className="mt-1 text-sm text-gray-500">
-                    {tab === 'selected'
-                        ? 'Use + Select on Discover videos to add them here.'
-                        : tab === 'upload'
-                            ? 'Choose video files to add them straight into Ready to Post.'
-                            : 'Tick videos in Selected, then save them to this list.'}
+                    {text.emptyHint[tab]}
                 </p>
             </div>
         </div>
@@ -90,6 +174,7 @@ function UploadPanel({
     onRemoveDraft,
     onAddToReady,
     isUploading,
+    language,
 }: {
     drafts: UploadDraft[];
     onPickFiles: (files: FileList | null) => void;
@@ -97,7 +182,10 @@ function UploadPanel({
     onRemoveDraft: (id: string) => void;
     onAddToReady: () => void;
     isUploading: boolean;
+    language: AppLanguage;
 }) {
+    const text = TEXT[language];
+
     return (
         <div className="grid gap-4">
             <label className="flex min-h-48 cursor-pointer items-center justify-center rounded-lg border border-dashed border-gray-200 bg-white p-6 text-center hover:border-blue-300 hover:bg-blue-50/40">
@@ -112,8 +200,8 @@ function UploadPanel({
                     <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-600">
                         MP4
                     </div>
-                    <p className="text-sm font-semibold text-gray-950">Upload video straight to Ready to Post</p>
-                    <p className="mt-1 text-sm text-gray-500">Select one or more video files from this computer.</p>
+                    <p className="text-sm font-semibold text-gray-950">{text.uploadTitle}</p>
+                    <p className="mt-1 text-sm text-gray-500">{text.uploadDescription}</p>
                 </div>
             </label>
 
@@ -121,7 +209,7 @@ function UploadPanel({
                 <>
                     <div className="grid gap-3">
                         {drafts.map((draft) => (
-                            <div key={draft.id} className="grid gap-3 rounded-lg border border-gray-100 bg-white p-3 shadow-sm md:grid-cols-[120px_minmax(0,1fr)_140px_auto]">
+                            <div key={draft.id} className="grid gap-3 rounded-lg border border-gray-100 bg-white p-3 shadow-sm sm:grid-cols-[120px_minmax(0,1fr)] lg:grid-cols-[120px_minmax(0,1fr)_140px_auto]">
                                 <video
                                     src={draft.url}
                                     className="aspect-video w-full rounded-md bg-gray-100 object-cover"
@@ -129,7 +217,7 @@ function UploadPanel({
                                     muted
                                 />
                                 <div className="min-w-0">
-                                    <label className="text-xs font-semibold uppercase text-gray-400">Title</label>
+                                    <label className="text-xs font-semibold uppercase text-gray-400">{text.titleField}</label>
                                     <input
                                         value={draft.title}
                                         onChange={(event) => onUpdateDraft(draft.id, { title: event.target.value })}
@@ -140,7 +228,7 @@ function UploadPanel({
                                     </p>
                                 </div>
                                 <div>
-                                    <label className="text-xs font-semibold uppercase text-gray-400">Platform</label>
+                                    <label className="text-xs font-semibold uppercase text-gray-400">{text.platformField}</label>
                                     <select
                                         value={draft.platform}
                                         onChange={(event) =>
@@ -159,7 +247,7 @@ function UploadPanel({
                                     onClick={() => onRemoveDraft(draft.id)}
                                     className="h-9 rounded-md bg-gray-100 px-3 text-xs font-semibold text-gray-700 hover:bg-red-50 hover:text-red-700"
                                 >
-                                    Remove
+                                    {text.remove}
                                 </button>
                             </div>
                         ))}
@@ -172,7 +260,7 @@ function UploadPanel({
                             disabled={isUploading}
                             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
                         >
-                            {isUploading ? 'Uploading' : `Add ${drafts.length} to Ready to Post`}
+                            {isUploading ? text.uploading : text.addToReady(drafts.length)}
                         </button>
                     </div>
                 </>
@@ -181,7 +269,9 @@ function UploadPanel({
     );
 }
 
-function VideoThumb({ video }: { video: Video }) {
+function VideoThumb({ video, language }: { video: Video; language: AppLanguage }) {
+    const text = TEXT[language];
+
     return (
         <a
             href={video.url}
@@ -200,7 +290,7 @@ function VideoThumb({ video }: { video: Video }) {
                 />
             ) : (
                 <div className="flex size-full items-center justify-center px-2 text-center text-[10px] font-medium text-gray-400">
-                    No thumbnail
+                    {text.noThumbnail}
                 </div>
             )}
         </a>
@@ -216,14 +306,15 @@ function isRemoteMediaUrl(url?: string) {
     return Boolean(url && /^https?:\/\//i.test(url));
 }
 
-function getMediaReadiness(video: Video) {
+function getMediaReadiness(video: Video, language: AppLanguage) {
+    const text = TEXT[language];
     const provider = getStorageProvider(video);
     const url = video.preparedLocalUrl || video.url;
 
     if (provider === 'cloudflare-r2' || isRemoteMediaUrl(video.preparedLocalUrl)) {
         return {
-            label: 'R2 ready',
-            linkLabel: 'Open R2 file',
+            label: text.r2Ready,
+            linkLabel: text.openR2,
             badgeClass: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
             isReady: true,
             url,
@@ -232,8 +323,8 @@ function getMediaReadiness(video: Video) {
 
     if (provider === 'local' || video.preparedLocalPath || video.preparedLocalUrl?.startsWith('/')) {
         return {
-            label: 'Local only',
-            linkLabel: 'Open local file',
+            label: text.localOnly,
+            linkLabel: text.openLocal,
             badgeClass: 'bg-amber-50 text-amber-700 ring-amber-100',
             isReady: process.env.NODE_ENV !== 'production',
             url,
@@ -241,8 +332,8 @@ function getMediaReadiness(video: Video) {
     }
 
     return {
-        label: 'Preparing',
-        linkLabel: 'Open file',
+        label: text.preparingBadge,
+        linkLabel: text.openFile,
         badgeClass: 'bg-gray-100 text-gray-600 ring-gray-200',
         isReady: false,
         url,
@@ -256,6 +347,7 @@ function VideoRow({
     mode,
     onToggle,
     onRemove,
+    language,
 }: {
     video: Video;
     checked?: boolean;
@@ -263,11 +355,13 @@ function VideoRow({
     mode: SelectedTab;
     onToggle?: (id: string) => void;
     onRemove: (id: string) => void;
+    language: AppLanguage;
 }) {
-    const readiness = getMediaReadiness(video);
+    const text = TEXT[language];
+    const readiness = getMediaReadiness(video, language);
 
     return (
-        <div className="flex gap-3 rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
+        <div className="flex flex-col gap-3 rounded-lg border border-gray-100 bg-white p-3 shadow-sm sm:flex-row">
             {mode === 'selected' && (
                 <div className="flex pt-1">
                     <input
@@ -281,7 +375,7 @@ function VideoRow({
                 </div>
             )}
 
-            <VideoThumb video={video} />
+            <VideoThumb video={video} language={language} />
 
             <div className="min-w-0 flex-1">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -290,7 +384,7 @@ function VideoRow({
                     </span>
                     {alreadySaved && mode === 'selected' && (
                         <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-700 ring-1 ring-green-100">
-                            Saved
+                            {text.saved}
                         </span>
                     )}
                 </div>
@@ -325,7 +419,7 @@ function VideoRow({
                     onClick={() => onRemove(video.id)}
                     className="rounded-md bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-red-50 hover:text-red-700"
                 >
-                    Remove
+                    {text.remove}
                 </button>
             </div>
         </div>
@@ -333,6 +427,8 @@ function VideoRow({
 }
 
 export default function SelectedPage() {
+    const language = useLanguageStore((state) => state.language);
+    const text = TEXT[language];
     const selectedVideos = useVideoStore((state) => state.selectedVideos);
     const postingVideos = useVideoStore((state) => state.postingVideos);
     const removeSelected = useVideoStore((state) => state.removeSelected);
@@ -356,8 +452,8 @@ export default function SelectedPage() {
     );
     const activeVideos = activeTab === 'selected' ? selectedVideos : postingVideos;
     const readyPostingVideos = useMemo(
-        () => postingVideos.filter((video) => getMediaReadiness(video).isReady),
-        [postingVideos],
+        () => postingVideos.filter((video) => getMediaReadiness(video, language).isReady),
+        [language, postingVideos],
     );
     const activeItemCount =
         activeTab === 'upload' ? uploadDrafts.length : activeVideos.length;
@@ -429,7 +525,7 @@ export default function SelectedPage() {
             }
 
             const notReadyVideos = result.preparedVideos.filter(
-                (video) => !getMediaReadiness(video).isReady,
+                (video) => !getMediaReadiness(video, language).isReady,
             );
 
             if (notReadyVideos.length > 0) {
@@ -552,7 +648,7 @@ export default function SelectedPage() {
             }
 
             const notReadyVideos = result.uploadedVideos.filter(
-                (video) => !getMediaReadiness(video).isReady,
+                (video) => !getMediaReadiness(video, language).isReady,
             );
 
             if (notReadyVideos.length > 0) {
@@ -575,12 +671,12 @@ export default function SelectedPage() {
 
     return (
         <div className="flex h-full flex-col overflow-hidden bg-white">
-            <div className="flex-none border-b border-gray-100 px-6 py-4">
+            <div className="flex-none border-b border-gray-100 px-4 py-4 sm:px-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-950">Selected Videos</h1>
+                        <h1 className="text-2xl font-bold text-gray-950">{text.title}</h1>
                         <p className="mt-1 text-sm text-gray-500">
-                            Review temporary selections, then save approved videos for posting.
+                            {text.description}
                         </p>
                     </div>
 
@@ -589,11 +685,11 @@ export default function SelectedPage() {
                         disabled={activeItemCount === 0}
                         className="rounded-md bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                        Clear {activeTab === 'selected' ? 'Selected' : activeTab === 'upload' ? 'Upload' : 'Ready'}
+                        {activeTab === 'selected' ? text.clearSelected : activeTab === 'upload' ? text.clearUpload : text.clearPosting}
                     </button>
                 </div>
 
-                <div className="mt-4 flex items-center gap-2">
+                <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
                     <button
                         onClick={() => setActiveTab('selected')}
                         className={`rounded-md px-3 py-2 text-sm font-semibold ${activeTab === 'selected'
@@ -601,7 +697,7 @@ export default function SelectedPage() {
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                             }`}
                     >
-                        Selected ({selectedVideos.length})
+                        {text.selected} ({selectedVideos.length})
                     </button>
                     <button
                         onClick={() => setActiveTab('upload')}
@@ -610,7 +706,7 @@ export default function SelectedPage() {
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                             }`}
                     >
-                        Upload ({uploadDrafts.length})
+                        {text.upload} ({uploadDrafts.length})
                     </button>
                     <button
                         onClick={() => setActiveTab('posting')}
@@ -619,21 +715,21 @@ export default function SelectedPage() {
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                             }`}
                     >
-                        Ready to Post ({readyPostingVideos.length})
+                        {text.posting} ({readyPostingVideos.length})
                     </button>
                 </div>
 
                 {activeTab === 'selected' && selectedVideos.length > 0 && (
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2">
                         <div className="text-xs font-medium text-gray-600">
-                            {checkedIds.length} marked for saving, {unsavedSelectedVideos.length} not saved yet.
+                            {text.marked(checkedIds.length, unsavedSelectedVideos.length)}
                         </div>
                         <button
                             onClick={toggleAll}
                             disabled={unsavedSelectedVideos.length === 0}
                             className="rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            {checkedIds.length === unsavedSelectedVideos.length ? 'Uncheck all' : 'Check unsaved'}
+                            {checkedIds.length === unsavedSelectedVideos.length ? text.uncheckAll : text.checkUnsaved}
                         </button>
                     </div>
                 )}
@@ -645,7 +741,7 @@ export default function SelectedPage() {
                 )}
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 py-5 pb-28">
+            <div className="flex-1 overflow-y-auto px-4 py-5 pb-36 sm:px-6 md:pb-28">
                 {activeTab === 'upload' ? (
                     <UploadPanel
                         drafts={uploadDrafts}
@@ -654,9 +750,10 @@ export default function SelectedPage() {
                         onRemoveDraft={removeUploadDraft}
                         onAddToReady={addUploadsToReady}
                         isUploading={isUploading}
+                        language={language}
                     />
                 ) : activeVideos.length === 0 ? (
-                    <EmptyState tab={activeTab} />
+                    <EmptyState tab={activeTab} language={language} />
                 ) : (
                     <div className="grid gap-3">
                         {activeVideos.map((video) => (
@@ -668,6 +765,7 @@ export default function SelectedPage() {
                                 alreadySaved={isVideoPosting(video.id)}
                                 onToggle={toggleChecked}
                                 onRemove={activeTab === 'selected' ? removeFromSelected : removePosting}
+                                language={language}
                             />
                         ))}
                     </div>
@@ -675,18 +773,18 @@ export default function SelectedPage() {
             </div>
 
             {activeTab === 'selected' && (
-                <div className="pointer-events-none fixed bottom-6 right-6 z-10">
-                    <div className="pointer-events-auto flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-lg">
+                <div className="pointer-events-none fixed inset-x-4 bottom-20 z-20 flex justify-end md:bottom-6 md:right-6 md:left-auto">
+                    <div className="pointer-events-auto flex w-full items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-lg sm:w-auto">
                         <div className="text-right">
                             <div className="text-xs font-semibold text-gray-900">{checkedIds.length} video(s)</div>
-                            <div className="text-[11px] text-gray-500">marked for posting</div>
+                            <div className="text-[11px] text-gray-500">{text.markedFooter}</div>
                         </div>
                         <button
                             onClick={() => void saveForPosting()}
                             disabled={!canSave || isPreparing}
                             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
                         >
-                            {isPreparing ? 'Preparing' : 'Save'}
+                            {isPreparing ? text.preparing : text.save}
                         </button>
                     </div>
                 </div>
