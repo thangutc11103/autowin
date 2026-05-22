@@ -487,6 +487,39 @@ export async function getScrapedVideoById(
   });
 }
 
+export async function getScrapedVideoByIdForUser(params: {
+  id: string;
+  tenantId?: string;
+  userId: string;
+}): Promise<Video | null> {
+  const scopedTenantId = normalizeTenantId(params.tenantId);
+  await ensureScrapeStorage();
+
+  return withClient(async (client) => {
+    const result = await client.query(
+      `
+        SELECT
+          id,
+          title,
+          author,
+          platform,
+          video_url,
+          thumbnail_url,
+          raw_payload
+        FROM scraped_videos
+        WHERE id = $1
+          AND tenant_id = $2
+          AND user_id = $3
+        LIMIT 1
+      `,
+      [params.id, scopedTenantId, params.userId],
+    );
+
+    const row = result.rows[0];
+    return row ? mapVideoRow(row) : null;
+  });
+}
+
 export async function updateScrapedVideoMediaById(params: {
   id: string;
   tenantId?: string;

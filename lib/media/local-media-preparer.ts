@@ -20,7 +20,7 @@ const TIKTOK_API_USER_AGENT =
   "TikTok 26.2.0 rv:262018 (iPhone; iOS 14.4.2; en_US) Cronet";
 const OUTPUT_DIR = path.join(
   /* turbopackIgnore: true */ process.cwd(),
-  "public",
+  ".media-tmp",
   "prepared-videos",
 );
 const TEMP_DIR = path.join(

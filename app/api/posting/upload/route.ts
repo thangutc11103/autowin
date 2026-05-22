@@ -2,6 +2,11 @@ import { randomUUID } from "crypto";
 import path from "path";
 import { NextResponse } from "next/server";
 import { requireFeature } from "@/lib/auth/access-control";
+import { getCurrentUser } from "@/lib/auth/session-auth";
+import {
+  upsertUserVideoItem,
+  type UserVideoItemRecord,
+} from "@/lib/database/video-item-storage";
 import {
   isR2Configured,
   isR2RequiredButMissing,
@@ -31,13 +36,6 @@ function sanitizeTitle(fileName: string) {
   return fileName.replace(/\.[^.]+$/, "").trim() || "Uploaded video";
 }
 
-function getTenantId(formData: FormData): string {
-  const tenantId = formData.get("tenantId");
-  return typeof tenantId === "string" && tenantId.trim()
-    ? tenantId.trim()
-    : process.env.DEFAULT_TENANT_ID || "default";
-}
-
 function isPlatform(value: unknown): value is Platform {
   return (
     value === "tiktok" ||
@@ -49,13 +47,18 @@ function isPlatform(value: unknown): value is Platform {
 }
 
 export async function POST(request: Request) {
+  const currentUser = await getCurrentUser(request);
+
+  if (!currentUser) {
+    return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
   const formData = await request.formData();
   const files = formData.getAll("files").filter((item): item is File => item instanceof File);
   const rawMetadata = formData.get("metadata");
-  const tenantId = getTenantId(formData);
   const permissionError = await requireFeature({
     request,
-    tenantId,
+    tenantId: currentUser.tenantId,
     featureKey: "upload_media",
   });
   if (permissionError) return permissionError;
@@ -93,6 +96,7 @@ export async function POST(request: Request) {
   }
 
   const uploadedVideos: Video[] = [];
+  const items: UserVideoItemRecord[] = [];
 
   for (const [index, file] of files.entries()) {
     const extension = getExtension(file.name);
@@ -127,7 +131,7 @@ export async function POST(request: Request) {
         : sanitizeTitle(file.name);
     const id = `upload-${randomUUID()}`;
     const storedName = `${id}${extension}`;
-    const objectKey = `tenants/${tenantId}/uploads/ready/${storedName}`;
+    const objectKey = `tenants/${currentUser.tenantId}/users/${currentUser.id}/uploads/ready/${storedName}`;
     const fileBuffer = Buffer.from(await file.arrayBuffer());
 
     const uploaded = await uploadR2Object({
@@ -139,7 +143,7 @@ export async function POST(request: Request) {
     const publicUrl = uploaded.publicUrl;
     const r2Key = uploaded.key;
 
-    uploadedVideos.push({
+    const video: Video = {
       id,
       title,
       thumbnail: "",
@@ -151,7 +155,8 @@ export async function POST(request: Request) {
       preparedAt: new Date().toISOString(),
       preparedSource: "direct-media",
       rawPayload: {
-        tenantId,
+        tenantId: currentUser.tenantId,
+        userId: currentUser.id,
         storageProvider: "cloudflare-r2",
         r2Key,
         publicUrl,
@@ -161,11 +166,23 @@ export async function POST(request: Request) {
         mimeType: file.type,
         sizeBytes: file.size,
       },
+    };
+
+    uploadedVideos.push(video);
+    const item = await upsertUserVideoItem({
+      tenantId: currentUser.tenantId,
+      userId: currentUser.id,
+      status: "ready",
+      video,
+      preparedUrl: publicUrl,
+      r2Key,
     });
+    items.push(item);
   }
 
   return NextResponse.json({
     success: true,
+    items,
     uploadedVideos,
   });
 }

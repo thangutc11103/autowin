@@ -67,6 +67,7 @@ export interface ScheduledPostRecord {
 
 export interface PublishTargetContext {
   tenantId: string;
+  userId: string;
   postId: string;
   targetId: string;
   videoTitle: string;
@@ -480,6 +481,7 @@ export async function listScheduledPosts(params?: {
 
 export async function markTargetPublishing(params: {
   tenantId?: string;
+  userId?: string;
   postId: string;
   targetId: string;
 }): Promise<void> {
@@ -492,8 +494,9 @@ export async function markTargetPublishing(params: {
         UPDATE post_targets
         SET status = 'publishing', updated_at = NOW()
         WHERE id = $1 AND post_id = $2 AND tenant_id = $3
+          AND ($4::TEXT IS NULL OR user_id = $4)
       `,
-      [params.targetId, params.postId, tenantId],
+      [params.targetId, params.postId, tenantId, params.userId ?? null],
     ),
   );
 
@@ -502,6 +505,7 @@ export async function markTargetPublishing(params: {
 
 export async function markTargetPublished(params: {
   tenantId?: string;
+  userId?: string;
   postId: string;
   targetId: string;
   platformPostId?: string;
@@ -522,6 +526,7 @@ export async function markTargetPublished(params: {
           last_error = NULL,
           updated_at = NOW()
         WHERE id = $1 AND post_id = $2 AND tenant_id = $5
+          AND ($6::TEXT IS NULL OR user_id = $6)
       `,
       [
         params.targetId,
@@ -529,6 +534,7 @@ export async function markTargetPublished(params: {
         params.platformPostId ?? null,
         params.platformResponse ? JSON.stringify(params.platformResponse) : null,
         tenantId,
+        params.userId ?? null,
       ],
     ),
   );
@@ -538,6 +544,7 @@ export async function markTargetPublished(params: {
 
 export async function getPublishTargetContext(params: {
   tenantId?: string;
+  userId: string;
   postId: string;
   targetId: string;
 }): Promise<PublishTargetContext | null> {
@@ -550,6 +557,7 @@ export async function getPublishTargetContext(params: {
         SELECT
           scheduled_posts.id AS post_id,
           scheduled_posts.tenant_id,
+          scheduled_posts.user_id,
           scheduled_posts.video_title,
           scheduled_posts.video_url,
           scheduled_posts.video_payload,
@@ -563,9 +571,11 @@ export async function getPublishTargetContext(params: {
         WHERE post_targets.id = $1 AND scheduled_posts.id = $2
           AND scheduled_posts.tenant_id = $3
           AND post_targets.tenant_id = $3
+          AND scheduled_posts.user_id = $4
+          AND post_targets.user_id = $4
         LIMIT 1
       `,
-      [params.targetId, params.postId, tenantId],
+      [params.targetId, params.postId, tenantId, params.userId],
     );
 
     const row = result.rows[0];
@@ -574,6 +584,7 @@ export async function getPublishTargetContext(params: {
     return {
       postId: String(row.post_id),
       tenantId: String(row.tenant_id),
+      userId: String(row.user_id),
       targetId: String(row.target_id),
       videoTitle: String(row.video_title),
       videoUrl: String(row.video_url),
@@ -588,6 +599,7 @@ export async function getPublishTargetContext(params: {
 
 export async function markTargetFailed(params: {
   tenantId?: string;
+  userId?: string;
   postId: string;
   targetId: string;
   error: string;
@@ -606,6 +618,7 @@ export async function markTargetFailed(params: {
           platform_response = COALESCE($4::JSONB, platform_response),
           updated_at = NOW()
         WHERE id = $1 AND post_id = $2 AND tenant_id = $5
+          AND ($6::TEXT IS NULL OR user_id = $6)
       `,
       [
         params.targetId,
@@ -613,6 +626,7 @@ export async function markTargetFailed(params: {
         params.error,
         params.platformResponse ? JSON.stringify(params.platformResponse) : null,
         tenantId,
+        params.userId ?? null,
       ],
     ),
   );

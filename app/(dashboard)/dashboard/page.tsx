@@ -43,6 +43,18 @@ interface ScheduledPostsResponse {
   error?: string;
 }
 
+interface UserVideoItem {
+  id: string;
+  sourceVideoId: string | null;
+  status: 'selected' | 'ready';
+  video: Video;
+}
+
+interface VideoItemsResponse {
+  items?: UserVideoItem[];
+  error?: string;
+}
+
 const PLATFORM_LABELS: Record<Platform, string> = {
   tiktok: 'TikTok',
   douyin: 'Douyin',
@@ -289,12 +301,14 @@ export default function DashboardPage() {
   const language = useLanguageStore((state) => state.language);
   const text = COPY[language];
   const videos = useVideoStore((state) => state.videos);
-  const selectedVideos = useVideoStore((state) => state.selectedVideos);
-  const postingVideos = useVideoStore((state) => state.postingVideos);
   const currentBatchByPlatform = useVideoStore((state) => state.currentBatchByPlatform);
+  const [selectedItems, setSelectedItems] = useState<UserVideoItem[]>([]);
+  const [readyItems, setReadyItems] = useState<UserVideoItem[]>([]);
   const [queueSummary, setQueueSummary] = useState({ active: 0, waiting: 0 });
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const selectedVideos = useMemo(() => selectedItems.map((item) => item.video), [selectedItems]);
+  const postingVideos = useMemo(() => readyItems.map((item) => item.video), [readyItems]);
 
   const preparedCount = useMemo(() => getPreparedCount(postingVideos), [postingVideos]);
   const sourceOnlyCount = Math.max(postingVideos.length - preparedCount, 0);
@@ -318,6 +332,21 @@ export default function DashboardPage() {
       if (postsResponse.ok) {
         const result = (await postsResponse.json()) as ScheduledPostsResponse;
         setPosts(result.posts || []);
+      }
+
+      const [selectedResponse, readyResponse] = await Promise.all([
+        fetch('/api/video-items?status=selected', { cache: 'no-store' }),
+        fetch('/api/video-items?status=ready', { cache: 'no-store' }),
+      ]);
+
+      if (selectedResponse.ok) {
+        const result = (await selectedResponse.json()) as VideoItemsResponse;
+        setSelectedItems(result.items || []);
+      }
+
+      if (readyResponse.ok) {
+        const result = (await readyResponse.json()) as VideoItemsResponse;
+        setReadyItems(result.items || []);
       }
     } finally {
       setIsRefreshing(false);

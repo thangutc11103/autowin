@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { useLanguageStore, type AppLanguage } from '@/store/language.store';
-import { useVideoStore } from '@/store/video.store';
 import type { Platform, Video } from '@/types/video';
 
 type SelectedTab = 'selected' | 'upload' | 'posting';
@@ -13,17 +12,31 @@ interface UploadDraft {
     file: File;
     url: string;
     title: string;
-    platform: Platform;
 }
 
 interface PreparePostingResponse {
     success?: boolean;
+    items?: UserVideoItem[];
     preparedVideos?: Video[];
     failures?: Array<{
         id: string;
         title: string;
         error: string;
     }>;
+    error?: string;
+}
+
+interface UserVideoItem {
+    id: string;
+    sourceVideoId: string | null;
+    status: 'selected' | 'ready';
+    video: Video;
+    preparedUrl?: string | null;
+    r2Key?: string | null;
+}
+
+interface VideoItemsResponse {
+    items?: UserVideoItem[];
     error?: string;
 }
 
@@ -155,6 +168,7 @@ function EmptyState({ tab, language }: { tab: SelectedTab; language: AppLanguage
 
 interface UploadPostingResponse {
     success?: boolean;
+    items?: UserVideoItem[];
     uploadedVideos?: Video[];
     error?: string;
 }
@@ -178,7 +192,7 @@ function UploadPanel({
 }: {
     drafts: UploadDraft[];
     onPickFiles: (files: FileList | null) => void;
-    onUpdateDraft: (id: string, patch: Partial<Pick<UploadDraft, 'title' | 'platform'>>) => void;
+    onUpdateDraft: (id: string, patch: Partial<Pick<UploadDraft, 'title'>>) => void;
     onRemoveDraft: (id: string) => void;
     onAddToReady: () => void;
     isUploading: boolean;
@@ -209,7 +223,7 @@ function UploadPanel({
                 <>
                     <div className="grid gap-3">
                         {drafts.map((draft) => (
-                            <div key={draft.id} className="grid gap-3 rounded-lg border border-gray-100 bg-white p-3 shadow-sm sm:grid-cols-[120px_minmax(0,1fr)] lg:grid-cols-[120px_minmax(0,1fr)_140px_auto]">
+                            <div key={draft.id} className="grid gap-3 rounded-lg border border-gray-100 bg-white p-3 shadow-sm sm:grid-cols-[120px_minmax(0,1fr)] lg:grid-cols-[120px_minmax(0,1fr)_auto]">
                                 <video
                                     src={draft.url}
                                     className="aspect-video w-full rounded-md bg-gray-100 object-cover"
@@ -226,21 +240,6 @@ function UploadPanel({
                                     <p className="mt-2 truncate text-xs text-gray-500">
                                         {draft.file.name} • {formatBytes(draft.file.size)}
                                     </p>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-semibold uppercase text-gray-400">{text.platformField}</label>
-                                    <select
-                                        value={draft.platform}
-                                        onChange={(event) =>
-                                            onUpdateDraft(draft.id, { platform: event.target.value as Platform })
-                                        }
-                                        className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-900 outline-none focus:border-blue-500"
-                                    >
-                                        <option value="tiktok">TikTok</option>
-                                        <option value="youtube">YouTube</option>
-                                        <option value="facebook">Facebook</option>
-                                        <option value="instagram">Instagram</option>
-                                    </select>
                                 </div>
                                 <button
                                     type="button"
@@ -429,22 +428,40 @@ function VideoRow({
 export default function SelectedPage() {
     const language = useLanguageStore((state) => state.language);
     const text = TEXT[language];
-    const selectedVideos = useVideoStore((state) => state.selectedVideos);
-    const postingVideos = useVideoStore((state) => state.postingVideos);
-    const removeSelected = useVideoStore((state) => state.removeSelected);
-    const removePosting = useVideoStore((state) => state.removePosting);
-    const clearSelected = useVideoStore((state) => state.clearSelected);
-    const clearPosting = useVideoStore((state) => state.clearPosting);
-    const addPostingVideos = useVideoStore((state) => state.addPostingVideos);
-    const isVideoPosting = useVideoStore((state) => state.isVideoPosting);
-
     const [activeTab, setActiveTab] = useState<SelectedTab>('selected');
+    const [selectedItems, setSelectedItems] = useState<UserVideoItem[]>([]);
+    const [readyItems, setReadyItems] = useState<UserVideoItem[]>([]);
     const [checkedIds, setCheckedIds] = useState<string[]>([]);
     const [message, setMessage] = useState<string | null>(null);
     const [isPreparing, setIsPreparing] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
+    const [isLoadingItems, setIsLoadingItems] = useState(true);
     const [uploadDrafts, setUploadDrafts] = useState<UploadDraft[]>([]);
     const uploadDraftsRef = useRef<UploadDraft[]>([]);
+    const selectedVideos = useMemo(() => selectedItems.map((item) => item.video), [selectedItems]);
+    const postingVideos = useMemo(() => readyItems.map((item) => item.video), [readyItems]);
+    const readySourceIds = useMemo(() => {
+        const ids = new Set<string>();
+        readyItems.forEach((item) => {
+            if (item.sourceVideoId) ids.add(item.sourceVideoId);
+            ids.add(item.video.id);
+        });
+        return ids;
+    }, [readyItems]);
+    const selectedItemByVideoId = useMemo(() => {
+        const map = new Map<string, UserVideoItem>();
+        selectedItems.forEach((item) => map.set(item.video.id, item));
+        return map;
+    }, [selectedItems]);
+    const readyItemByVideoId = useMemo(() => {
+        const map = new Map<string, UserVideoItem>();
+        readyItems.forEach((item) => map.set(item.video.id, item));
+        return map;
+    }, [readyItems]);
+    const isVideoPosting = useCallback((id: string) => {
+        const selectedItem = selectedItemByVideoId.get(id);
+        return readySourceIds.has(selectedItem?.sourceVideoId || id);
+    }, [readySourceIds, selectedItemByVideoId]);
 
     const unsavedSelectedVideos = useMemo(
         () => selectedVideos.filter((video) => !isVideoPosting(video.id)),
@@ -460,9 +477,45 @@ export default function SelectedPage() {
     const checkedSet = new Set(checkedIds);
     const canSave = checkedIds.length > 0;
 
+    const loadVideoItems = useCallback(async () => {
+        setIsLoadingItems(true);
+
+        try {
+            const [selectedResponse, readyResponse] = await Promise.all([
+                fetch('/api/video-items?status=selected', { cache: 'no-store' }),
+                fetch('/api/video-items?status=ready', { cache: 'no-store' }),
+            ]);
+            const selectedData = (await selectedResponse.json()) as VideoItemsResponse;
+            const readyData = (await readyResponse.json()) as VideoItemsResponse;
+
+            if (!selectedResponse.ok || selectedData.error) {
+                throw new Error(selectedData.error || 'Failed to load selected videos');
+            }
+
+            if (!readyResponse.ok || readyData.error) {
+                throw new Error(readyData.error || 'Failed to load ready videos');
+            }
+
+            setSelectedItems(selectedData.items || []);
+            setReadyItems(readyData.items || []);
+        } catch (error) {
+            setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to load video items'}`);
+        } finally {
+            setIsLoadingItems(false);
+        }
+    }, []);
+
     useEffect(() => {
         uploadDraftsRef.current = uploadDrafts;
     }, [uploadDrafts]);
+
+    useEffect(() => {
+        const timeout = window.setTimeout(() => {
+            void loadVideoItems();
+        }, 0);
+
+        return () => window.clearTimeout(timeout);
+    }, [loadVideoItems]);
 
     useEffect(() => {
         return () => {
@@ -498,9 +551,9 @@ export default function SelectedPage() {
             return;
         }
 
-        const videosToPrepare = selectedVideos.filter((video) => checkedSet.has(video.id));
+        const itemsToPrepare = selectedItems.filter((item) => checkedSet.has(item.video.id));
         setIsPreparing(true);
-        setMessage(`Preparing ${videosToPrepare.length} video(s) locally...`);
+        setMessage(`Preparing ${itemsToPrepare.length} video(s) locally...`);
 
         try {
             const response = await fetch('/api/posting/prepare', {
@@ -509,12 +562,12 @@ export default function SelectedPage() {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    videos: videosToPrepare,
+                    itemIds: itemsToPrepare.map((item) => item.id),
                 }),
             });
             const result = (await response.json()) as PreparePostingResponse;
 
-            if (!response.ok || result.error || !result.preparedVideos?.length) {
+            if (!response.ok || result.error || !result.items?.length) {
                 const failureText = result.failures?.length
                     ? `: ${result.failures
                         .slice(0, 3)
@@ -524,9 +577,9 @@ export default function SelectedPage() {
                 throw new Error(`${result.error || 'Failed to prepare selected videos'}${failureText}`);
             }
 
-            const notReadyVideos = result.preparedVideos.filter(
-                (video) => !getMediaReadiness(video, language).isReady,
-            );
+            const notReadyVideos = result.items
+                .map((item) => item.video)
+                .filter((video) => !getMediaReadiness(video, language).isReady);
 
             if (notReadyVideos.length > 0) {
                 throw new Error(
@@ -534,14 +587,14 @@ export default function SelectedPage() {
                 );
             }
 
-            addPostingVideos(result.preparedVideos);
+            await loadVideoItems();
             setCheckedIds([]);
             setActiveTab('posting');
 
             const failureText = result.failures?.length
                 ? ` ${result.failures.length} video(s) failed.`
                 : '';
-            setMessage(`Prepared and saved ${result.preparedVideos.length} video(s) to R2.${failureText}`);
+            setMessage(`Prepared and saved ${result.items.length} video(s) to R2.${failureText}`);
         } catch (error) {
             setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to prepare videos'}`);
         } finally {
@@ -549,16 +602,52 @@ export default function SelectedPage() {
         }
     };
 
-    const removeFromSelected = (id: string) => {
-        removeSelected(id);
+    const deleteVideoItem = async (itemId: string) => {
+        const response = await fetch(`/api/video-items/${itemId}`, {
+            method: 'DELETE',
+        });
+
+        if (!response.ok) {
+            const result = (await response.json().catch(() => ({}))) as { error?: string };
+            throw new Error(result.error || 'Failed to remove video item');
+        }
+    };
+
+    const removeFromSelected = async (id: string) => {
+        const item = selectedItemByVideoId.get(id);
+        if (!item) return;
+
+        try {
+            await deleteVideoItem(item.id);
+            setSelectedItems((items) => items.filter((current) => current.id !== item.id));
+        } catch (error) {
+            setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to remove selected video'}`);
+        }
         setCheckedIds((prev) => prev.filter((item) => item !== id));
     };
 
-    const clearCurrentTab = () => {
+    const removeReadyItem = async (id: string) => {
+        const item = readyItemByVideoId.get(id);
+        if (!item) return;
+
+        try {
+            await deleteVideoItem(item.id);
+            setReadyItems((items) => items.filter((current) => current.id !== item.id));
+        } catch (error) {
+            setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to remove ready video'}`);
+        }
+    };
+
+    const clearCurrentTab = async () => {
         if (activeTab === 'selected') {
-            clearSelected();
-            setCheckedIds([]);
-            setMessage('Temporary selection cleared.');
+            try {
+                await Promise.all(selectedItems.map((item) => deleteVideoItem(item.id)));
+                setSelectedItems([]);
+                setCheckedIds([]);
+                setMessage('Temporary selection cleared.');
+            } catch (error) {
+                setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to clear selected videos'}`);
+            }
             return;
         }
 
@@ -569,8 +658,13 @@ export default function SelectedPage() {
             return;
         }
 
-        clearPosting();
-        setMessage('Ready to Post list cleared.');
+        try {
+            await Promise.all(readyItems.map((item) => deleteVideoItem(item.id)));
+            setReadyItems([]);
+            setMessage('Ready to Post list cleared.');
+        } catch (error) {
+            setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to clear ready videos'}`);
+        }
     };
 
     const pickUploadFiles = (files: FileList | null) => {
@@ -589,7 +683,6 @@ export default function SelectedPage() {
                 file,
                 url: URL.createObjectURL(file),
                 title: baseTitle,
-                platform: 'tiktok' as Platform,
             };
         });
 
@@ -599,7 +692,7 @@ export default function SelectedPage() {
 
     const updateUploadDraft = (
         id: string,
-        patch: Partial<Pick<UploadDraft, 'title' | 'platform'>>,
+        patch: Partial<Pick<UploadDraft, 'title'>>,
     ) => {
         setUploadDrafts((current) =>
             current.map((draft) => (draft.id === id ? { ...draft, ...patch } : draft)),
@@ -632,7 +725,6 @@ export default function SelectedPage() {
                 JSON.stringify(
                     uploadDrafts.map((draft) => ({
                         title: draft.title,
-                        platform: draft.platform,
                     })),
                 ),
             );
@@ -643,13 +735,13 @@ export default function SelectedPage() {
             });
             const result = (await response.json()) as UploadPostingResponse;
 
-            if (!response.ok || result.error || !result.uploadedVideos?.length) {
+            if (!response.ok || result.error || !result.items?.length) {
                 throw new Error(result.error || 'Failed to upload videos');
             }
 
-            const notReadyVideos = result.uploadedVideos.filter(
-                (video) => !getMediaReadiness(video, language).isReady,
-            );
+            const notReadyVideos = result.items
+                .map((item) => item.video)
+                .filter((video) => !getMediaReadiness(video, language).isReady);
 
             if (notReadyVideos.length > 0) {
                 throw new Error(
@@ -657,11 +749,11 @@ export default function SelectedPage() {
                 );
             }
 
-            addPostingVideos(result.uploadedVideos);
+            await loadVideoItems();
             uploadDrafts.forEach((draft) => URL.revokeObjectURL(draft.url));
             setUploadDrafts([]);
             setActiveTab('posting');
-            setMessage(`Uploaded and added ${result.uploadedVideos.length} video(s) to Ready to Post.`);
+            setMessage(`Uploaded and added ${result.items.length} video(s) to Ready to Post.`);
         } catch (error) {
             setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to upload videos'}`);
         } finally {
@@ -681,7 +773,7 @@ export default function SelectedPage() {
                     </div>
 
                     <button
-                        onClick={clearCurrentTab}
+                        onClick={() => void clearCurrentTab()}
                         disabled={activeItemCount === 0}
                         className="rounded-md bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -752,6 +844,10 @@ export default function SelectedPage() {
                         isUploading={isUploading}
                         language={language}
                     />
+                ) : isLoadingItems ? (
+                    <div className="flex min-h-80 items-center justify-center rounded-lg border border-dashed border-gray-200 bg-white">
+                        <p className="text-sm font-semibold text-gray-500">Loading videos...</p>
+                    </div>
                 ) : activeVideos.length === 0 ? (
                     <EmptyState tab={activeTab} language={language} />
                 ) : (
@@ -764,7 +860,7 @@ export default function SelectedPage() {
                                 checked={checkedSet.has(video.id)}
                                 alreadySaved={isVideoPosting(video.id)}
                                 onToggle={toggleChecked}
-                                onRemove={activeTab === 'selected' ? removeFromSelected : removePosting}
+                                onRemove={activeTab === 'selected' ? removeFromSelected : removeReadyItem}
                                 language={language}
                             />
                         ))}

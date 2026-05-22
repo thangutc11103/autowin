@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import FilterPanel from '@/components/discover/filter-panel';
 import { useFilterStore } from '@/store/filter.store';
@@ -32,6 +32,17 @@ interface VideosResponse {
 interface ResolveVideoResponse {
     success?: boolean;
     video?: Video;
+    error?: string;
+}
+
+interface UserVideoItem {
+    id: string;
+    sourceVideoId: string | null;
+    video: Video;
+}
+
+interface VideoItemsResponse {
+    items?: UserVideoItem[];
     error?: string;
 }
 
@@ -71,10 +82,15 @@ function EmptyState() {
     );
 }
 
-function VideoCard({ video }: { video: Video }) {
-    const addSelected = useVideoStore((state) => state.addSelected);
-    const removeSelected = useVideoStore((state) => state.removeSelected);
-    const selected = useVideoStore((state) => state.isVideoSelected(video.id));
+function VideoCard({
+    video,
+    selected,
+    onToggleSelect,
+}: {
+    video: Video;
+    selected: boolean;
+    onToggleSelect: (video: Video) => void;
+}) {
     const platformClass = PLATFORM_BADGES[video.platform];
     const previewRef = useRef<HTMLVideoElement | null>(null);
     const [isPreviewing, setIsPreviewing] = useState(false);
@@ -95,11 +111,7 @@ function VideoCard({ video }: { video: Video }) {
     }, [isPreviewing, mediaVideoUrl]);
 
     const toggleSelect = () => {
-        if (selected) {
-            removeSelected(video.id);
-        } else {
-            addSelected(video);
-        }
+        onToggleSelect(video);
     };
 
     const playPreview = () => {
@@ -254,7 +266,17 @@ function VideoCard({ video }: { video: Video }) {
     );
 }
 
-function VideoGrid({ videos, isLoading }: { videos: Video[]; isLoading: boolean }) {
+function VideoGrid({
+    videos,
+    isLoading,
+    selectedSourceIds,
+    onToggleSelect,
+}: {
+    videos: Video[];
+    isLoading: boolean;
+    selectedSourceIds: Set<string>;
+    onToggleSelect: (video: Video) => void;
+}) {
     if (isLoading) {
         return (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
@@ -272,7 +294,12 @@ function VideoGrid({ videos, isLoading }: { videos: Video[]; isLoading: boolean 
     return (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {videos.map((video) => (
-                <VideoCard key={`${video.id}-${video.mediaVideoUrl || ''}`} video={video} />
+                <VideoCard
+                    key={`${video.id}-${video.mediaVideoUrl || ''}`}
+                    video={video}
+                    selected={selectedSourceIds.has(video.id)}
+                    onToggleSelect={onToggleSelect}
+                />
             ))}
         </div>
     );
@@ -290,7 +317,20 @@ export default function DiscoverPage() {
     } = useVideoStore();
     const [error, setError] = useState<string | null>(null);
     const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [selectedItems, setSelectedItems] = useState<UserVideoItem[]>([]);
     const currentBatchId = currentBatchByPlatform[activePlatform];
+    const selectedItemBySourceId = useMemo(() => {
+        const map = new Map<string, UserVideoItem>();
+        selectedItems.forEach((item) => {
+            const sourceId = item.sourceVideoId || item.video.id;
+            map.set(sourceId, item);
+        });
+        return map;
+    }, [selectedItems]);
+    const selectedSourceIds = useMemo(
+        () => new Set(selectedItemBySourceId.keys()),
+        [selectedItemBySourceId],
+    );
 
     useEffect(() => {
         document.body.style.overflow = isFilterOpen ? 'hidden' : '';
@@ -338,17 +378,72 @@ export default function DiscoverPage() {
         }
     }, [activePlatform, currentBatchId, setLoading, setVideos]);
 
+    const loadSelectedItems = useCallback(async (signal?: AbortSignal) => {
+        const response = await fetch('/api/video-items?status=selected', {
+            cache: 'no-store',
+            signal,
+        });
+        const data = (await response.json()) as VideoItemsResponse;
+
+        if (!response.ok || data.error) {
+            throw new Error(data.error || 'Failed to load selected videos');
+        }
+
+        setSelectedItems(data.items || []);
+    }, []);
+
     useEffect(() => {
         const abortController = new AbortController();
         const timeoutId = window.setTimeout(() => {
             void loadVideos(abortController.signal);
+            void loadSelectedItems(abortController.signal).catch((loadError) => {
+                if (!abortController.signal.aborted) {
+                    setError(loadError instanceof Error ? loadError.message : 'Failed to load selected videos');
+                }
+            });
         }, 0);
 
         return () => {
             window.clearTimeout(timeoutId);
             abortController.abort();
         };
-    }, [loadVideos]);
+    }, [loadSelectedItems, loadVideos]);
+
+    const toggleSelected = useCallback(async (video: Video) => {
+        const existing = selectedItemBySourceId.get(video.id);
+        setError(null);
+
+        try {
+            if (existing) {
+                const response = await fetch(`/api/video-items/${existing.id}`, {
+                    method: 'DELETE',
+                });
+
+                if (!response.ok) {
+                    const result = (await response.json().catch(() => ({}))) as { error?: string };
+                    throw new Error(result.error || 'Failed to remove selected video');
+                }
+
+                setSelectedItems((items) => items.filter((item) => item.id !== existing.id));
+                return;
+            }
+
+            const response = await fetch('/api/video-items/select', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ videoId: video.id }),
+            });
+            const result = (await response.json()) as { item?: UserVideoItem; error?: string };
+
+            if (!response.ok || result.error || !result.item) {
+                throw new Error(result.error || 'Failed to select video');
+            }
+
+            setSelectedItems((items) => [result.item!, ...items.filter((item) => item.id !== result.item!.id)]);
+        } catch (toggleError) {
+            setError(toggleError instanceof Error ? toggleError.message : 'Failed to update selected video');
+        }
+    }, [selectedItemBySourceId]);
 
     return (
         <div className="flex h-full overflow-hidden bg-white">
@@ -414,7 +509,12 @@ export default function DiscoverPage() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-                    <VideoGrid videos={videos} isLoading={isLoading} />
+                    <VideoGrid
+                        videos={videos}
+                        isLoading={isLoading}
+                        selectedSourceIds={selectedSourceIds}
+                        onToggleSelect={toggleSelected}
+                    />
                 </div>
             </div>
         </div>

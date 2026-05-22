@@ -58,7 +58,7 @@ function getEnvList(name: string, fallback: string): string {
   return getEnv(name) || fallback;
 }
 
-const defaultTikTokScopes = "user.info.basic,video.publish";
+const defaultTikTokScopes = "user.info.basic,video.publish,video.upload";
 
 function expiresAt(expiresIn?: number): string | undefined {
   if (!expiresIn) return undefined;

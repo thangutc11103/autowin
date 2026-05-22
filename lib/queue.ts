@@ -4,6 +4,7 @@ import type { CrawlJobData } from "@/types/job";
 
 export interface PublishJobData {
   tenantId: string;
+  userId: string;
   postId: string;
   targetId: string;
 }
@@ -128,6 +129,7 @@ export function getMediaQueue(): Queue<MediaJobData> {
 
 export async function addPublishJob(params: {
   tenantId: string;
+  userId: string;
   postId: string;
   targetId: string;
   delayMs?: number;
@@ -137,6 +139,7 @@ export async function addPublishJob(params: {
     "publish",
       {
         tenantId: params.tenantId,
+        userId: params.userId,
         postId: params.postId,
         targetId: params.targetId,
     },

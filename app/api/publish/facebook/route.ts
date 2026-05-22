@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth/session-auth";
 import { oauthStorage } from "@/lib/oauth-storage";
 import { publishFacebookVideo } from "@/lib/publish/facebook";
-import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
 export const runtime = "nodejs";
 
@@ -18,7 +18,13 @@ type Body = {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Body;
-    const tenantId = getTenantIdFromRequest(request);
+    const currentUser = await getCurrentUser(request);
+
+    if (!currentUser) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+
+    const tenantId = currentUser.tenantId;
 
     if (!body.fileUrl) {
       return NextResponse.json({ error: "fileUrl is required" }, { status: 400 });
@@ -57,6 +63,7 @@ export async function POST(request: Request) {
     const result = await publishFacebookVideo({
       postId: "manual",
       tenantId,
+      userId: currentUser.id,
       targetId: page.id,
       accountKey: page.accountKey,
       platform: "facebook",

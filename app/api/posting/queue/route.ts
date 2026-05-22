@@ -4,9 +4,8 @@ import {
   listScheduledPosts,
   type QueuePostTargetInput,
 } from "@/lib/database/posting-storage";
+import { getUserVideoItemById } from "@/lib/database/video-item-storage";
 import { addPublishJob } from "@/lib/queue";
-import type { Video } from "@/types/video";
-import { getTenantIdFromRequest } from "@/lib/tenant-context";
 import { oauthStorage } from "@/lib/oauth-storage";
 import {
   getPublishFeatureKey,
@@ -19,7 +18,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 interface QueuePostRequest {
-  video?: Video;
+  videoItemId?: string;
   caption?: string;
   publishWindow?: "now" | "schedule";
   scheduledAt?: string | null;
@@ -28,12 +27,15 @@ interface QueuePostRequest {
 
 export async function GET(request: Request) {
   try {
-    const tenantId = getTenantIdFromRequest(request);
     const currentUser = await getCurrentUser(request);
+
+    if (!currentUser) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+
     const posts = await listScheduledPosts({
-      tenantId,
+      tenantId: currentUser.tenantId,
       userId:
-        currentUser &&
         currentUser.role !== "owner" &&
         currentUser.role !== "admin"
           ? currentUser.id
@@ -54,8 +56,13 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const tenantId = getTenantIdFromRequest(request);
     const currentUser = await getCurrentUser(request);
+
+    if (!currentUser) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+
+    const tenantId = currentUser.tenantId;
     const body = (await request.json().catch(() => ({}))) as QueuePostRequest;
 
     const queuePermissionError = await requireFeature({
@@ -65,8 +72,22 @@ export async function POST(request: Request) {
     });
     if (queuePermissionError) return queuePermissionError;
 
-    if (!body.video) {
-      return NextResponse.json({ error: "Missing video" }, { status: 400 });
+    if (!body.videoItemId) {
+      return NextResponse.json({ error: "Missing video item" }, { status: 400 });
+    }
+
+    const videoItem = await getUserVideoItemById({
+      tenantId,
+      userId: currentUser.id,
+      id: body.videoItemId,
+      status: "ready",
+    });
+
+    if (!videoItem) {
+      return NextResponse.json(
+        { error: "Ready video item was not found" },
+        { status: 404 },
+      );
     }
 
     if (!body.caption?.trim()) {
@@ -143,8 +164,8 @@ export async function POST(request: Request) {
 
     const post = await createQueuedPost({
       tenantId,
-      userId: currentUser?.id,
-      video: body.video,
+      userId: currentUser.id,
+      video: videoItem.video,
       caption: body.caption.trim(),
       publishWindow,
       scheduledAt,
@@ -159,6 +180,7 @@ export async function POST(request: Request) {
       post.targets.map((target) =>
         addPublishJob({
           tenantId,
+          userId: currentUser.id,
           postId: post.id,
           targetId: target.id,
           delayMs,

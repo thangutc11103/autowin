@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { useLanguageStore, type AppLanguage } from '@/store/language.store';
-import { useVideoStore } from '@/store/video.store';
 import type { Platform, Video } from '@/types/video';
 
 type PostMode = 'draft' | 'scheduled';
@@ -87,6 +86,18 @@ interface QueuePostResponse {
 
 interface ScheduledPostsResponse {
     posts?: ScheduledPost[];
+    error?: string;
+}
+
+interface UserVideoItem {
+    id: string;
+    sourceVideoId: string | null;
+    status: 'selected' | 'ready';
+    video: Video;
+}
+
+interface VideoItemsResponse {
+    items?: UserVideoItem[];
     error?: string;
 }
 
@@ -358,9 +369,9 @@ function VideoPickList({
 
 export default function AutomationPage() {
     const language = useLanguageStore((state) => state.language);
-    const postingVideos = useVideoStore((state) => state.postingVideos);
-    const firstVideoId = postingVideos[0]?.id || null;
-    const [selectedVideoId, setSelectedVideoId] = useState<string | null>(firstVideoId);
+    const [readyItems, setReadyItems] = useState<UserVideoItem[]>([]);
+    const postingVideos = useMemo(() => readyItems.map((item) => item.video), [readyItems]);
+    const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
     const [publishingAccounts, setPublishingAccounts] = useState<PublishingAccount[]>([]);
     const [managedPages, setManagedPages] = useState<ManagedPage[]>([]);
     const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([]);
@@ -384,6 +395,13 @@ export default function AutomationPage() {
     const selectedVideo = useMemo(
         () => postingVideos.find((video) => video.id === selectedVideoId) || postingVideos[0] || null,
         [postingVideos, selectedVideoId],
+    );
+    const selectedVideoItem = useMemo(
+        () =>
+            readyItems.find((item) => item.video.id === selectedVideo?.id) ||
+            readyItems[0] ||
+            null,
+        [readyItems, selectedVideo],
     );
     const publishingTargets = useMemo<PublishingTarget[]>(() => {
         const accountTargets = publishingAccounts
@@ -441,12 +459,49 @@ export default function AutomationPage() {
 
     const allChecksPassed = Object.values(checks).every(Boolean);
     const canCreate = Boolean(
-        selectedVideo &&
+        selectedVideoItem &&
         selectedTargetIds.length > 0 &&
         caption.trim() &&
         allChecksPassed &&
         (publishWindow === 'now' || scheduledAt),
     );
+
+    useEffect(() => {
+        let cancelled = false;
+
+        async function loadReadyItems() {
+            try {
+                const response = await fetch('/api/video-items?status=ready', { cache: 'no-store' });
+                const data = (await response.json()) as VideoItemsResponse;
+
+                if (!response.ok || data.error) {
+                    throw new Error(data.error || 'Failed to load ready videos');
+                }
+
+                if (!cancelled) {
+                    const items = data.items || [];
+                    setReadyItems(items);
+                    setSelectedVideoId((current) => {
+                        if (current && items.some((item) => item.video.id === current)) {
+                            return current;
+                        }
+
+                        return items[0]?.video.id || null;
+                    });
+                }
+            } catch (error) {
+                if (!cancelled) {
+                    setQueueMessage(error instanceof Error ? error.message : 'Failed to load ready videos');
+                }
+            }
+        }
+
+        void loadReadyItems();
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -557,7 +612,7 @@ export default function AutomationPage() {
     };
 
     const queuePost = async () => {
-        if (!selectedVideo || !canCreate) {
+        if (!selectedVideoItem || !canCreate) {
             setQueueMessage(text.footerBlocked);
             return;
         }
@@ -570,7 +625,7 @@ export default function AutomationPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    video: selectedVideo,
+                    videoItemId: selectedVideoItem.id,
                     caption,
                     publishWindow,
                     scheduledAt,

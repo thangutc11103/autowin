@@ -392,26 +392,37 @@ function setupPublishWorker() {
   const worker = new Worker<PublishJobData>(
     POST_QUEUE_NAME,
     async (job) => {
-      const { tenantId, postId, targetId } = job.data;
+      const { tenantId, userId, postId, targetId } = job.data;
 
       console.log(`[PUBLISH ${job.id}] Started post=${postId} target=${targetId}`);
 
       try {
         await job.updateProgress(20);
-        await markTargetPublishing({ tenantId, postId, targetId });
+
+        if (!userId) {
+          throw new UnrecoverableError("Publish job is missing user ownership");
+        }
 
         await job.updateProgress(60);
-        const context = await getPublishTargetContext({ tenantId, postId, targetId });
+        const context = await getPublishTargetContext({
+          tenantId,
+          userId,
+          postId,
+          targetId,
+        });
 
         if (!context) {
           throw new Error("Publish target context not found");
         }
+
+        await markTargetPublishing({ tenantId, userId, postId, targetId });
 
         await job.updateProgress(100);
         if (context.platform === "facebook") {
           const result = await publishFacebookVideo(context);
           await markTargetPublished({
             tenantId,
+            userId,
             postId,
             targetId,
             platformPostId: result.platformPostId,
@@ -421,6 +432,7 @@ function setupPublishWorker() {
           const result = await publishTikTokVideo(context);
           await markTargetPublished({
             tenantId,
+            userId,
             postId,
             targetId,
             platformPostId: result.platformPostId,
@@ -431,6 +443,7 @@ function setupPublishWorker() {
           await new Promise((resolve) => setTimeout(resolve, 500));
           await markTargetPublished({
             tenantId,
+            userId,
             postId,
             targetId,
             platformResponse: { mocked: true, platform: context.platform },
@@ -448,6 +461,7 @@ function setupPublishWorker() {
         const errorMsg = error instanceof Error ? error.message : String(error);
         await markTargetFailed({
           tenantId,
+          userId,
           postId,
           targetId,
           error: errorMsg,
