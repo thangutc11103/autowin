@@ -60,12 +60,15 @@ export async function publishFacebookVideo(
   });
   const facebookPages = pages.filter((page) => page.platform === "facebook");
   const page =
+    (context.pageRecordId
+      ? facebookPages.find((item) => item.id === context.pageRecordId)
+      : null) ||
     facebookPages.find((item) => item.isDefault) ||
     (facebookPages.length === 1 ? facebookPages[0] : null);
 
   if (!page) {
     throw new Error(
-      "No Facebook Page target selected. Sync pages and set a default Page in Accounts.",
+      "No Facebook Page target selected. Sync pages and choose a Page in Automation.",
     );
   }
 

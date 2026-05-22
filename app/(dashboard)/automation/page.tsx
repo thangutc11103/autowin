@@ -30,6 +30,34 @@ interface AccountsResponse {
     error?: string;
 }
 
+interface ManagedPage {
+    id: string;
+    accountKey: string;
+    platform: 'facebook' | 'instagram';
+    pageId: string;
+    pageName: string;
+    instagramBusinessAccountId?: string;
+    instagramUsername?: string;
+    isDefault: boolean;
+    syncedAt: string;
+    hasPageAccessToken: boolean;
+}
+
+interface PagesResponse {
+    pages?: ManagedPage[];
+    error?: string;
+}
+
+interface PublishingTarget {
+    id: string;
+    accountKey: string;
+    platform: Exclude<Platform, 'douyin'>;
+    label: string;
+    description: string;
+    account?: PublishingAccount;
+    page?: ManagedPage;
+}
+
 interface ScheduledPost {
     id: string;
     videoTitle: string;
@@ -39,6 +67,8 @@ interface ScheduledPost {
         accountKey: string;
         platform: Exclude<Platform, 'douyin'>;
         accountLabel?: string | null;
+        pageRecordId?: string | null;
+        pageName?: string | null;
         status: PostStatus;
         lastError?: string | null;
         platformPostId?: string | null;
@@ -239,6 +269,16 @@ function getAccountLabel(account: PublishingAccount) {
     );
 }
 
+function getPageTargetLabel(page: ManagedPage) {
+    if (page.platform === 'instagram') {
+        return page.instagramUsername
+            ? `${page.pageName} / @${page.instagramUsername}`
+            : `${page.pageName} / Instagram`;
+    }
+
+    return page.pageName;
+}
+
 function splitScopes(scope?: string) {
     return scope ? scope.split(/[,\s]+/).filter(Boolean) : [];
 }
@@ -322,7 +362,8 @@ export default function AutomationPage() {
     const firstVideoId = postingVideos[0]?.id || null;
     const [selectedVideoId, setSelectedVideoId] = useState<string | null>(firstVideoId);
     const [publishingAccounts, setPublishingAccounts] = useState<PublishingAccount[]>([]);
-    const [selectedAccountKeys, setSelectedAccountKeys] = useState<string[]>([]);
+    const [managedPages, setManagedPages] = useState<ManagedPage[]>([]);
+    const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([]);
     const [accountsError, setAccountsError] = useState<string | null>(null);
     const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
     const [mode, setMode] = useState<PostMode>('draft');
@@ -344,26 +385,54 @@ export default function AutomationPage() {
         () => postingVideos.find((video) => video.id === selectedVideoId) || postingVideos[0] || null,
         [postingVideos, selectedVideoId],
     );
-    const accountsByPlatform = useMemo(
+    const publishingTargets = useMemo<PublishingTarget[]>(() => {
+        const accountTargets = publishingAccounts
+            .filter((account) => account.platform === 'tiktok' || account.platform === 'youtube')
+            .map((account) => ({
+                id: `account:${account.key}`,
+                accountKey: account.key,
+                platform: account.platform as Exclude<Platform, 'douyin'>,
+                label: getAccountLabel(account),
+                description: account.handle || account.displayName || account.key,
+                account,
+            }));
+        const pageTargets = managedPages
+            .filter((page) => page.hasPageAccessToken)
+            .map((page) => {
+                const account = publishingAccounts.find((item) => item.key === page.accountKey);
+
+                return {
+                    id: `page:${page.id}`,
+                    accountKey: page.accountKey,
+                    platform: page.platform,
+                    label: getPageTargetLabel(page),
+                    description: account ? getAccountLabel(account) : page.pageId,
+                    account,
+                    page,
+                };
+            });
+
+        return [...accountTargets, ...pageTargets];
+    }, [managedPages, publishingAccounts]);
+    const targetsByPlatform = useMemo(
         () =>
-            publishingAccounts.reduce<Record<OAuthPlatform, PublishingAccount[]>>(
-                (groups, account) => {
-                    groups[account.platform].push(account);
+            publishingTargets.reduce<Record<Exclude<Platform, 'douyin'>, PublishingTarget[]>>(
+                (groups, target) => {
+                    groups[target.platform].push(target);
                     return groups;
                 },
                 {
                     tiktok: [],
                     facebook: [],
                     instagram: [],
-                    meta: [],
                     youtube: [],
                 },
             ),
-        [publishingAccounts],
+        [publishingTargets],
     );
-    const selectedAccounts = useMemo(
-        () => publishingAccounts.filter((account) => selectedAccountKeys.includes(account.key)),
-        [publishingAccounts, selectedAccountKeys],
+    const selectedTargets = useMemo(
+        () => publishingTargets.filter((target) => selectedTargetIds.includes(target.id)),
+        [publishingTargets, selectedTargetIds],
     );
     const scheduledAt =
         publishWindow === 'schedule' && scheduleDate && scheduleTime
@@ -373,7 +442,7 @@ export default function AutomationPage() {
     const allChecksPassed = Object.values(checks).every(Boolean);
     const canCreate = Boolean(
         selectedVideo &&
-        selectedAccountKeys.length > 0 &&
+        selectedTargetIds.length > 0 &&
         caption.trim() &&
         allChecksPassed &&
         (publishWindow === 'now' || scheduledAt),
@@ -391,12 +460,32 @@ export default function AutomationPage() {
                     throw new Error(data.error || 'Failed to load accounts');
                 }
 
+                const accounts = data.accounts || [];
+
                 if (!cancelled) {
-                    const accounts = data.accounts || [];
                     setPublishingAccounts(accounts);
-                    setSelectedAccountKeys((current) =>
-                        current.filter((key) => accounts.some((account) => account.key === key)),
-                    );
+                }
+
+                const pagesResponse = await fetch('/api/auth/accounts/pages', { cache: 'no-store' });
+                const pagesData = (await pagesResponse.json()) as PagesResponse;
+
+                if (!pagesResponse.ok) {
+                    throw new Error(pagesData.error || 'Failed to load page targets');
+                }
+
+                if (!cancelled) {
+                    const pages = pagesData.pages || [];
+                    setManagedPages(pages);
+                    setSelectedTargetIds((current) => {
+                        const validTargetIds = new Set([
+                            ...accounts
+                                .filter((account) => account.platform === 'tiktok' || account.platform === 'youtube')
+                                .map((account) => `account:${account.key}`),
+                            ...pages.map((page) => `page:${page.id}`),
+                        ]);
+
+                        return current.filter((targetId) => validTargetIds.has(targetId));
+                    });
                 }
             } catch (error) {
                 if (!cancelled) {
@@ -452,11 +541,11 @@ export default function AutomationPage() {
         };
     }, [loadScheduledPosts]);
 
-    const toggleAccount = (accountKey: string) => {
-        setSelectedAccountKeys((current) =>
-            current.includes(accountKey)
-                ? current.filter((item) => item !== accountKey)
-                : [...current, accountKey],
+    const toggleTarget = (targetId: string) => {
+        setSelectedTargetIds((current) =>
+            current.includes(targetId)
+                ? current.filter((item) => item !== targetId)
+                : [...current, targetId],
         );
     };
 
@@ -485,10 +574,12 @@ export default function AutomationPage() {
                     caption,
                     publishWindow,
                     scheduledAt,
-                    accountTargets: selectedAccounts.map((account) => ({
-                        accountKey: account.key,
-                        platform: account.platform,
-                        accountLabel: getAccountLabel(account),
+                    accountTargets: selectedTargets.map((target) => ({
+                        accountKey: target.accountKey,
+                        platform: target.platform,
+                        accountLabel: target.label,
+                        pageRecordId: target.page?.id,
+                        pageName: target.page?.pageName,
                     })),
                 }),
             });
@@ -655,20 +746,20 @@ export default function AutomationPage() {
                                     <div className="mt-3 rounded-lg border border-red-100 bg-red-50 p-4 text-center">
                                         <p className="text-xs font-semibold text-red-700">{accountsError}</p>
                                     </div>
-                                ) : publishingAccounts.length === 0 ? (
+                                ) : publishingTargets.length === 0 ? (
                                     <div className="mt-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center">
                                         <p className="text-xs text-gray-600">
                                             {language === 'vi' 
                                                 ? 'Kết nối tài khoản từ trang Tài khoản đăng bài để bắt đầu.'
-                                                : 'Connect accounts from the Accounts page to start.'}
+                                                : 'Connect accounts and sync Pages from the Accounts page to start.'}
                                         </p>
                                     </div>
                                 ) : (
                                     <div className="mt-2 grid gap-3">
-                                        {(['tiktok', 'facebook', 'instagram', 'youtube'] as OAuthPlatform[]).map((platform) => {
-                                            const accounts = accountsByPlatform[platform];
+                                        {(['tiktok', 'facebook', 'instagram', 'youtube'] as Exclude<Platform, 'douyin'>[]).map((platform) => {
+                                            const targets = targetsByPlatform[platform];
 
-                                            if (accounts.length === 0) {
+                                            if (targets.length === 0) {
                                                 return null;
                                             }
 
@@ -679,17 +770,17 @@ export default function AutomationPage() {
                                                             {OAUTH_PLATFORM_LABELS[platform]}
                                                         </span>
                                                         <span className="text-[11px] font-semibold text-gray-400">
-                                                            {accounts.length} account(s)
+                                                            {targets.length} target(s)
                                                         </span>
                                                     </div>
                                                     <div className="grid gap-2">
-                                                        {accounts.map((account) => {
-                                                            const checked = selectedAccountKeys.includes(account.key);
-                                                            const scopes = splitScopes(account.scope);
+                                                        {targets.map((target) => {
+                                                            const checked = selectedTargetIds.includes(target.id);
+                                                            const scopes = splitScopes(target.account?.scope);
 
                                                             return (
                                                                 <label
-                                                                    key={account.key}
+                                                                    key={target.id}
                                                                     className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${checked
                                                                         ? 'border-blue-500 bg-blue-50'
                                                                         : 'border-gray-100 bg-white hover:bg-gray-50'
@@ -698,23 +789,23 @@ export default function AutomationPage() {
                                                                     <input
                                                                         type="checkbox"
                                                                         checked={checked}
-                                                                        onChange={() => toggleAccount(account.key)}
+                                                                        onChange={() => toggleTarget(target.id)}
                                                                         className="mt-1 size-4 accent-blue-600"
                                                                     />
                                                                     <span className="min-w-0 flex-1">
                                                                         <span className="flex items-center justify-between gap-2">
                                                                             <span className="truncate text-sm font-semibold text-gray-950">
-                                                                                {getAccountLabel(account)}
+                                                                                {target.label}
                                                                             </span>
                                                                             <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${STATUS_STYLES.connected}`}>
                                                                                 {text.channelStatus.connected}
                                                                             </span>
                                                                         </span>
                                                                         <span className="mt-1 block truncate text-xs text-gray-500">
-                                                                            {account.handle || account.displayName || account.key}
+                                                                            {target.description}
                                                                         </span>
                                                                         <span className="mt-1 block line-clamp-1 text-xs font-medium text-gray-600">
-                                                                            {scopes.length > 0 ? scopes.join(', ') : 'scope unknown'}
+                                                                            {target.page ? `Page ID: ${target.page.pageId}` : scopes.length > 0 ? scopes.join(', ') : 'scope unknown'}
                                                                         </span>
                                                                     </span>
                                                                 </label>
@@ -726,13 +817,13 @@ export default function AutomationPage() {
                                         })}
                                     </div>
                                 )}
-                                {selectedAccounts.length > 0 && (
+                                {selectedTargets.length > 0 && (
                                     <div className="mt-3 rounded-lg bg-gray-50 px-3 py-2">
                                         <p className="text-xs font-semibold text-gray-700">
-                                            {selectedAccounts.length} selected account(s)
+                                            {selectedTargets.length} selected target(s)
                                         </p>
                                         <p className="mt-1 line-clamp-2 text-xs text-gray-500">
-                                            {selectedAccounts.map(getAccountLabel).join(', ')}
+                                            {selectedTargets.map((target) => target.label).join(', ')}
                                         </p>
                                     </div>
                                 )}
@@ -805,7 +896,7 @@ export default function AutomationPage() {
                                                     className="flex min-w-0 flex-wrap items-center gap-2"
                                                 >
                                                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${PLATFORM_BADGES[target.platform]}`}>
-                                                        {target.accountLabel || getPlatformLabel(target.platform)}
+                                                        {target.pageName || target.accountLabel || getPlatformLabel(target.platform)}
                                                     </span>
                                                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${getPostStatusStyle(target.status)}`}>
                                                         {getPostStatusText(text, target.status)}

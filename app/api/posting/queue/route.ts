@@ -7,6 +7,7 @@ import {
 import { addPublishJob } from "@/lib/queue";
 import type { Video } from "@/types/video";
 import { getTenantIdFromRequest } from "@/lib/tenant-context";
+import { oauthStorage } from "@/lib/oauth-storage";
 import {
   getPublishFeatureKey,
   requireAccountPermission,
@@ -97,6 +98,34 @@ export async function POST(request: Request) {
         action: "post",
       });
       if (accountPermissionError) return accountPermissionError;
+
+      if (target.platform === "facebook" || target.platform === "instagram") {
+        if (!target.pageRecordId) {
+          return NextResponse.json(
+            { error: "Select a Page target for Facebook or Instagram" },
+            { status: 400 },
+          );
+        }
+
+        const pages = await oauthStorage.getAccountPages({
+          tenantId,
+          accountKey: target.accountKey,
+        });
+        const selectedPage = pages.find(
+          (page) =>
+            page.id === target.pageRecordId && page.platform === target.platform,
+        );
+
+        if (!selectedPage) {
+          return NextResponse.json(
+            { error: "Selected Page target was not found for this account" },
+            { status: 400 },
+          );
+        }
+
+        target.accountLabel ||= selectedPage.pageName;
+        target.pageName ||= selectedPage.pageName;
+      }
     }
 
     const publishWindow = body.publishWindow === "now" ? "now" : "schedule";

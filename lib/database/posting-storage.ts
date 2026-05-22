@@ -24,6 +24,8 @@ export interface QueuePostTargetInput {
   accountKey: string;
   platform: Exclude<Platform, "douyin">;
   accountLabel?: string;
+  pageRecordId?: string;
+  pageName?: string;
 }
 
 export interface QueuePostInput {
@@ -54,6 +56,8 @@ export interface ScheduledPostRecord {
     accountKey: string;
     platform: Exclude<Platform, "douyin">;
     accountLabel?: string | null;
+    pageRecordId?: string | null;
+    pageName?: string | null;
     status: PostTargetStatus;
     lastError?: string | null;
     publishedAt?: string | null;
@@ -71,6 +75,7 @@ export interface PublishTargetContext {
   caption: string;
   accountKey: string;
   platform: Exclude<Platform, "douyin">;
+  pageRecordId?: string | null;
 }
 
 let pool: Pool | null = null;
@@ -189,6 +194,8 @@ async function ensurePostingStorage(): Promise<void> {
           account_key TEXT NOT NULL,
           platform TEXT NOT NULL,
           account_label TEXT,
+          page_record_id TEXT,
+          page_name TEXT,
           status TEXT NOT NULL,
           last_error TEXT,
           platform_post_id TEXT,
@@ -217,6 +224,16 @@ async function ensurePostingStorage(): Promise<void> {
       await client.query(`
         ALTER TABLE post_targets
         ADD COLUMN IF NOT EXISTS platform_response JSONB;
+      `);
+
+      await client.query(`
+        ALTER TABLE post_targets
+        ADD COLUMN IF NOT EXISTS page_record_id TEXT;
+      `);
+
+      await client.query(`
+        ALTER TABLE post_targets
+        ADD COLUMN IF NOT EXISTS page_name TEXT;
       `);
 
       await client.query(`
@@ -271,6 +288,8 @@ function mapPostRows(rows: Array<Record<string, unknown>>): ScheduledPostRecord[
         accountKey: String(row.account_key),
         platform: row.platform as Exclude<Platform, "douyin">,
         accountLabel: row.account_label ? String(row.account_label) : null,
+        pageRecordId: row.page_record_id ? String(row.page_record_id) : null,
+        pageName: row.page_name ? String(row.page_name) : null,
         status: row.target_status as PostTargetStatus,
         lastError: row.last_error ? String(row.last_error) : null,
         platformPostId: row.platform_post_id ? String(row.platform_post_id) : null,
@@ -349,9 +368,11 @@ export async function createQueuedPost(
               account_key,
               platform,
               account_label,
+              page_record_id,
+              page_name,
               status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
           `,
           [
             randomUUID(),
@@ -361,6 +382,8 @@ export async function createQueuedPost(
             target.accountKey,
             target.platform,
             target.accountLabel || null,
+            target.pageRecordId || null,
+            target.pageName || null,
             targetStatus,
           ],
         );
@@ -434,6 +457,8 @@ export async function listScheduledPosts(params?: {
           post_targets.account_key,
           post_targets.platform,
           post_targets.account_label,
+          post_targets.page_record_id,
+          post_targets.page_name,
           post_targets.status AS target_status,
           post_targets.last_error,
           post_targets.platform_post_id,
@@ -531,7 +556,8 @@ export async function getPublishTargetContext(params: {
           scheduled_posts.caption,
           post_targets.id AS target_id,
           post_targets.account_key,
-          post_targets.platform
+          post_targets.platform,
+          post_targets.page_record_id
         FROM post_targets
         INNER JOIN scheduled_posts ON scheduled_posts.id = post_targets.post_id
         WHERE post_targets.id = $1 AND scheduled_posts.id = $2
@@ -555,6 +581,7 @@ export async function getPublishTargetContext(params: {
       caption: String(row.caption),
       accountKey: String(row.account_key),
       platform: row.platform as Exclude<Platform, "douyin">,
+      pageRecordId: row.page_record_id ? String(row.page_record_id) : null,
     };
   });
 }
