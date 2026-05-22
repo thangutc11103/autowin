@@ -130,8 +130,46 @@ const FILTER_COPY = {
     messages: Record<string, string | ((count: number) => string)>;
 }>;
 
+const VI_FILTER_COPY: typeof FILTER_COPY.en = {
+    platformTitle: 'Nền tảng',
+    filterSection: 'Bộ lọc',
+    fields: {
+        search: 'Từ khóa tìm kiếm',
+        danh_muc: 'Danh mục',
+        hashtag: 'Hashtag',
+        ten_kenh_tai_khoan: 'Tài khoản/Kênh',
+        limit: 'Số video tối đa',
+    },
+    clear: 'Xóa',
+    find: 'Tìm',
+    submitting: 'Đang gửi...',
+    history: 'Lịch sử',
+    keep7d: 'Giữ 7 ngày',
+    keep30d: 'Giữ 30 ngày',
+    clearHistory: 'Xóa lịch sử',
+    messages: {
+        pasteCookies: 'Dán Instagram cookies trước.',
+        checkingCookies: 'Đang kiểm tra cookies...',
+        cookiesVerified: 'Cookies đã xác minh. Có thể dùng hashtag.',
+        cookiesFailed: 'Kiểm tra cookie thất bại',
+        queued: 'Đã đưa job vào hàng đợi...',
+        finding: 'Worker đang tìm video...',
+        waiting: 'Đang chờ worker...',
+        completed: 'Worker hoàn tất. Đang cập nhật video...',
+        updated: 'Hoàn tất. Danh sách video đã cập nhật.',
+        submitted: (count: number) => `Đã gửi ${count} job.`,
+        cleared: 'Đã xóa bộ lọc.',
+        deleted: (count: number) => `Đã xóa ${count} video.`,
+        verifyInstagram: 'Xác minh Instagram cookies trước khi tìm hashtag.',
+    },
+};
+
+function getFilterCopy(language: AppLanguage) {
+    return language === 'vi' ? VI_FILTER_COPY : FILTER_COPY.en;
+}
+
 function getFieldLabel(language: AppLanguage, key: string, fallback: string) {
-    const fields = FILTER_COPY[language].fields as Record<string, string>;
+    const fields = getFilterCopy(language).fields as Record<string, string>;
     return fields[key] || fallback;
 }
 
@@ -140,7 +178,7 @@ function getMessage(
     key: keyof typeof FILTER_COPY.en.messages,
     count?: number,
 ) {
-    const value = FILTER_COPY[language].messages[key];
+    const value = getFilterCopy(language).messages[key];
     return typeof value === 'function' ? value(count || 0) : value;
 }
 
@@ -156,9 +194,9 @@ function FilterSection({ label, children }: { label: string; children: React.Rea
     );
 }
 
-export default function FilterPanel() {
+export default function FilterPanel({ showHeader = true }: { showHeader?: boolean }) {
     const language = useLanguageStore((state) => state.language);
-    const text = FILTER_COPY[language];
+    const text = getFilterCopy(language);
     const {
         activePlatform,
         filters,
@@ -576,9 +614,11 @@ export default function FilterPanel() {
 
     return (
         <div className="flex h-full flex-col border-r border-gray-200 bg-white">
-            <div className="border-b border-gray-100 px-4 py-4">
-                <h2 className="text-sm font-bold uppercase tracking-wide text-gray-900">{text.platformTitle}</h2>
-            </div>
+            {showHeader && (
+                <div className="border-b border-gray-100 px-4 py-4">
+                    <h2 className="text-sm font-bold uppercase tracking-wide text-gray-900">{text.platformTitle}</h2>
+                </div>
+            )}
 
             {submitMessage && (
                 <div

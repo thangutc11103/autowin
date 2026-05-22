@@ -45,3 +45,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# CodeGraph local index
+.codegraph/
+.codegraph/codegraph.db
+.codegraph/*.db
+.codegraph/*.db-*
+
+# Understand Anything local graph
+.understand-anything/

@@ -1,3 +1,5 @@
+/* eslint-disable react/no-unescaped-entities */
+
 export default function PrivacyPolicyPage() {
     return (
         <main className="min-h-screen bg-gray-50 px-6 py-16 text-gray-900">

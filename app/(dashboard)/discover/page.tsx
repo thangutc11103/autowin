@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import FilterPanel from '@/components/discover/filter-panel';
 import { useFilterStore } from '@/store/filter.store';
+import { useLanguageStore } from '@/store/language.store';
 import { useVideoStore } from '@/store/video.store';
 import type { Platform, Video } from '@/types/video';
 
@@ -278,6 +279,7 @@ function VideoGrid({ videos, isLoading }: { videos: Video[]; isLoading: boolean 
 }
 
 export default function DiscoverPage() {
+    const language = useLanguageStore((state) => state.language);
     const activePlatform = useFilterStore((state) => state.activePlatform);
     const {
         videos,
@@ -287,7 +289,15 @@ export default function DiscoverPage() {
         currentBatchByPlatform,
     } = useVideoStore();
     const [error, setError] = useState<string | null>(null);
+    const [isFilterOpen, setIsFilterOpen] = useState(false);
     const currentBatchId = currentBatchByPlatform[activePlatform];
+
+    useEffect(() => {
+        document.body.style.overflow = isFilterOpen ? 'hidden' : '';
+        return () => {
+            document.body.style.overflow = '';
+        };
+    }, [isFilterOpen]);
 
     const loadVideos = useCallback(async (signal?: AbortSignal) => {
         setLoading(true);
@@ -342,15 +352,60 @@ export default function DiscoverPage() {
 
     return (
         <div className="flex h-full overflow-hidden bg-white">
-            <div className="w-72 flex-none overflow-hidden border-r border-gray-100">
+            <div className="hidden w-72 flex-none overflow-hidden border-r border-gray-100 md:block">
                 <FilterPanel />
             </div>
 
+            <div
+                className={`fixed inset-0 z-50 md:hidden ${isFilterOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}
+                aria-hidden={!isFilterOpen}
+            >
+                <button
+                    type="button"
+                    aria-label={language === 'vi' ? 'Đóng bộ lọc nền tảng' : 'Close platform filters'}
+                    onClick={() => setIsFilterOpen(false)}
+                    className={`absolute inset-0 bg-gray-950/35 transition-opacity ${isFilterOpen ? 'opacity-100' : 'opacity-0'}`}
+                />
+                <aside
+                    className={`absolute inset-y-0 left-0 w-[86vw] max-w-[300px] overflow-hidden border-r border-gray-200 bg-white shadow-2xl transition-transform duration-200 ease-out ${isFilterOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                >
+                    <div className="flex h-full flex-col">
+                        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                            <h2 className="text-sm font-bold uppercase tracking-wide text-gray-900">
+                                {language === 'vi' ? 'Nền tảng' : 'Platform'}
+                            </h2>
+                            <button
+                                type="button"
+                                onClick={() => setIsFilterOpen(false)}
+                                aria-label={language === 'vi' ? 'Đóng bộ lọc nền tảng' : 'Close platform filters'}
+                                className="flex size-9 items-center justify-center rounded-lg text-2xl text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                            >
+                                ×
+                            </button>
+                        </div>
+                        <div className="min-h-0 flex-1">
+                            <FilterPanel showHeader={false} />
+                        </div>
+                    </div>
+                </aside>
+            </div>
+
             <div className="flex flex-1 flex-col overflow-hidden">
-                <div className="flex-none border-b border-gray-100 bg-white px-6 py-4">
-                    <h1 className="min-w-24 whitespace-nowrap text-2xl font-bold text-gray-950">
-                        {getPlatformDisplayName(activePlatform)}
-                    </h1>
+                <div className="flex-none border-b border-gray-100 bg-white px-4 py-4 sm:px-6">
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <h1 className="min-w-24 whitespace-nowrap text-2xl font-bold text-gray-950">
+                                {getPlatformDisplayName(activePlatform)}
+                            </h1>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setIsFilterOpen(true)}
+                            className="inline-flex items-center rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 md:hidden"
+                        >
+                            {language === 'vi' ? 'Nền tảng' : 'Platform'}
+                        </button>
+                    </div>
                     {error && (
                         <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                             {error}
@@ -358,7 +413,7 @@ export default function DiscoverPage() {
                     )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-6 py-5">
+                <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
                     <VideoGrid videos={videos} isLoading={isLoading} />
                 </div>
             </div>
