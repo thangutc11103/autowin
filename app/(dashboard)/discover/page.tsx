@@ -17,12 +17,24 @@ const PLATFORM_LABELS: Record<Platform, string> = {
 };
 
 const PLATFORM_BADGES: Record<Platform, string> = {
-    tiktok: 'bg-pink-50 text-pink-700 ring-pink-100',
-    douyin: 'bg-purple-50 text-purple-700 ring-purple-100',
-    facebook: 'bg-blue-50 text-blue-700 ring-blue-100',
-    instagram: 'bg-orange-50 text-orange-700 ring-orange-100',
-    youtube: 'bg-red-50 text-red-700 ring-red-100',
+    tiktok: 'bg-slate-950/70 text-pink-100 ring-pink-400/25',
+    douyin: 'bg-slate-950/70 text-violet-100 ring-violet-400/25',
+    facebook: 'bg-slate-950/70 text-blue-100 ring-blue-400/25',
+    instagram: 'bg-slate-950/70 text-amber-100 ring-amber-400/25',
+    youtube: 'bg-slate-950/70 text-red-100 ring-red-400/25',
 };
+
+const VIDEO_GRID_CLASS = 'grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6';
+const VIDEO_CARD_BASE =
+    'group/card overflow-hidden rounded-2xl border bg-slate-950/58 shadow-[0_20px_45px_rgba(0,0,0,0.28)] backdrop-blur transition-all duration-200';
+const VIDEO_CARD_SELECTED =
+    'border-blue-400 ring-2 ring-blue-400/35 shadow-[0_0_36px_rgba(59,130,246,0.28)]';
+const VIDEO_CARD_IDLE = 'border-cyan-300/10 hover:-translate-y-0.5 hover:border-cyan-300/28';
+const SELECT_BUTTON_BASE = 'min-w-24 rounded-xl border px-3 py-2 text-xs font-bold transition-all';
+const SELECT_BUTTON_SELECTED =
+    'border-blue-300/30 bg-gradient-to-r from-blue-600 to-violet-600 text-white shadow-[0_0_22px_rgba(59,130,246,0.35)] hover:from-blue-500 hover:to-violet-500';
+const SELECT_BUTTON_IDLE =
+    'border-violet-400/35 bg-slate-950/45 text-slate-100 hover:border-cyan-300/45 hover:bg-blue-500/10 hover:text-cyan-100';
 
 interface VideosResponse {
     videos?: Video[];
@@ -52,14 +64,14 @@ function getPlatformDisplayName(platform: Platform): string {
 
 function SkeletonCard() {
     return (
-        <div className="overflow-hidden rounded-lg border border-gray-100 bg-white shadow-sm">
-            <div className="aspect-[9/16] w-full animate-pulse bg-gray-100" />
+        <div className="overflow-hidden rounded-2xl border border-cyan-300/10 bg-slate-950/55 shadow-[0_20px_45px_rgba(0,0,0,0.28)]">
+            <div className="aspect-[9/16] w-full animate-pulse bg-slate-900/80" />
             <div className="space-y-3 p-3">
-                <div className="h-4 w-full rounded bg-gray-100" />
-                <div className="h-4 w-3/4 rounded bg-gray-100" />
+                <div className="h-4 w-full rounded bg-slate-800/80" />
+                <div className="h-4 w-3/4 rounded bg-slate-800/70" />
                 <div className="flex items-center justify-between">
-                    <div className="h-3 w-12 rounded bg-gray-100" />
-                    <div className="h-7 w-20 rounded-full bg-gray-100" />
+                    <div className="h-3 w-12 rounded bg-slate-800/70" />
+                    <div className="h-7 w-20 rounded-full bg-slate-800/70" />
                 </div>
             </div>
         </div>
@@ -68,13 +80,13 @@ function SkeletonCard() {
 
 function EmptyState() {
     return (
-        <div className="flex h-full min-h-96 items-center justify-center rounded-lg border border-dashed border-gray-200 bg-white">
+        <div className="flex h-full min-h-96 items-center justify-center rounded-2xl border border-dashed border-cyan-300/15 bg-slate-950/45">
             <div className="max-w-sm px-6 text-center">
-                <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-gray-50 text-xl">
+                <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-blue-500/10 text-xl text-cyan-200 ring-1 ring-cyan-300/20">
                     video
                 </div>
-                <h2 className="text-sm font-semibold text-gray-900">No videos found</h2>
-                <p className="mt-1 text-sm text-gray-500">
+                <h2 className="text-sm font-semibold text-slate-100">No videos found</h2>
+                <p className="mt-1 text-sm text-slate-400">
                     Run a filter job to load videos for this platform.
                 </p>
             </div>
@@ -180,16 +192,13 @@ function VideoCard({
 
     return (
         <div
-            className={`overflow-hidden rounded-lg border bg-white shadow-sm transition-all ${selected
-                ? 'border-blue-500 ring-2 ring-blue-200'
-                : 'border-gray-100 hover:shadow-md'
-                }`}
+            className={`${VIDEO_CARD_BASE} ${selected ? VIDEO_CARD_SELECTED : VIDEO_CARD_IDLE}`}
         >
             <a
                 href={video.url}
                 target="_blank"
                 rel="noreferrer"
-                className="group relative block aspect-[9/16] w-full overflow-hidden bg-gray-100"
+                className="group relative block aspect-[9/16] w-full overflow-hidden bg-slate-900"
                 onMouseEnter={startPreview}
                 onMouseLeave={stopPreview}
                 onFocus={startPreview}
@@ -207,7 +216,7 @@ function VideoCard({
                     />
                 ) : (
                     <div
-                        className={`flex size-full items-center justify-center bg-gradient-to-b from-gray-100 to-gray-200 text-xs font-medium text-gray-400 ${isPreviewing ? 'opacity-0' : 'opacity-100'
+                        className={`flex size-full items-center justify-center bg-gradient-to-b from-slate-900 to-slate-950 text-xs font-medium text-slate-500 ${isPreviewing ? 'opacity-0' : 'opacity-100'
                             }`}
                     >
                         No thumbnail
@@ -246,17 +255,14 @@ function VideoCard({
                 </span>
             </a>
 
-            <div className="p-3">
-                <h3 className="mb-2 min-h-10 overflow-hidden text-sm font-medium leading-snug text-gray-900 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+            <div className="border-t border-cyan-300/10 bg-slate-950/72 p-3">
+                <h3 className="mb-3 min-h-11 overflow-hidden text-sm font-semibold leading-6 text-slate-100 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
                     {video.title}
                 </h3>
                 <div className="flex justify-end">
                     <button
                         onClick={toggleSelect}
-                        className={`min-w-20 rounded-full px-3 py-1 text-xs font-semibold transition-colors ${selected
-                            ? 'bg-blue-600 text-white hover:bg-blue-700'
-                            : 'bg-gray-100 text-gray-700 hover:bg-blue-50 hover:text-blue-600'
-                            }`}
+                        className={`${SELECT_BUTTON_BASE} ${selected ? SELECT_BUTTON_SELECTED : SELECT_BUTTON_IDLE}`}
                     >
                         {selected ? 'Selected' : '+ Select'}
                     </button>
@@ -279,7 +285,7 @@ function VideoGrid({
 }) {
     if (isLoading) {
         return (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            <div className={VIDEO_GRID_CLASS}>
                 {Array.from({ length: 12 }).map((_, index) => (
                     <SkeletonCard key={index} />
                 ))}
@@ -292,7 +298,7 @@ function VideoGrid({
     }
 
     return (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <div className={VIDEO_GRID_CLASS}>
             {videos.map((video) => (
                 <VideoCard
                     key={`${video.id}-${video.mediaVideoUrl || ''}`}
@@ -446,8 +452,8 @@ export default function DiscoverPage() {
     }, [selectedItemBySourceId]);
 
     return (
-        <div className="flex h-full overflow-hidden bg-white">
-            <div className="hidden w-72 flex-none overflow-hidden border-r border-gray-100 md:block">
+        <div className="flex h-full overflow-hidden">
+            <div className="hidden w-72 flex-none overflow-hidden border-r border-cyan-300/10 bg-slate-950/42 md:block">
                 <FilterPanel />
             </div>
 
@@ -459,21 +465,21 @@ export default function DiscoverPage() {
                     type="button"
                     aria-label={language === 'vi' ? 'Đóng bộ lọc nền tảng' : 'Close platform filters'}
                     onClick={() => setIsFilterOpen(false)}
-                    className={`absolute inset-0 bg-gray-950/35 transition-opacity ${isFilterOpen ? 'opacity-100' : 'opacity-0'}`}
+                    className={`absolute inset-0 bg-slate-950/70 transition-opacity ${isFilterOpen ? 'opacity-100' : 'opacity-0'}`}
                 />
                 <aside
-                    className={`absolute inset-y-0 left-0 w-[86vw] max-w-[300px] overflow-hidden border-r border-gray-200 bg-white shadow-2xl transition-transform duration-200 ease-out ${isFilterOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                    className={`absolute inset-y-0 left-0 w-[86vw] max-w-[300px] overflow-hidden border-r border-cyan-300/10 bg-slate-950 shadow-2xl transition-transform duration-200 ease-out ${isFilterOpen ? 'translate-x-0' : '-translate-x-full'}`}
                 >
                     <div className="flex h-full flex-col">
-                        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                            <h2 className="text-sm font-bold uppercase tracking-wide text-gray-900">
+                        <div className="flex items-center justify-between border-b border-cyan-300/10 px-4 py-3">
+                            <h2 className="text-sm font-bold uppercase tracking-wide text-slate-100">
                                 {language === 'vi' ? 'Nền tảng' : 'Platform'}
                             </h2>
                             <button
                                 type="button"
                                 onClick={() => setIsFilterOpen(false)}
                                 aria-label={language === 'vi' ? 'Đóng bộ lọc nền tảng' : 'Close platform filters'}
-                                className="flex size-9 items-center justify-center rounded-lg text-2xl text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                                className="flex size-9 items-center justify-center rounded-lg text-2xl text-slate-400 hover:bg-slate-900 hover:text-slate-100"
                             >
                                 ×
                             </button>
@@ -486,29 +492,29 @@ export default function DiscoverPage() {
             </div>
 
             <div className="flex flex-1 flex-col overflow-hidden">
-                <div className="flex-none border-b border-gray-100 bg-white px-4 py-4 sm:px-6">
+                <div className="flex-none border-b border-cyan-300/10 bg-slate-950/25 px-4 py-5 backdrop-blur sm:px-6">
                     <div className="flex items-center justify-between gap-3">
                         <div>
-                            <h1 className="min-w-24 whitespace-nowrap text-2xl font-bold text-gray-950">
+                            <h1 className="min-w-24 whitespace-nowrap text-3xl font-black tracking-tight text-slate-50">
                                 {getPlatformDisplayName(activePlatform)}
                             </h1>
                         </div>
                         <button
                             type="button"
                             onClick={() => setIsFilterOpen(true)}
-                            className="inline-flex items-center rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 md:hidden"
+                            className="inline-flex items-center rounded-xl border border-cyan-300/15 bg-slate-950/70 px-3 py-2 text-sm font-semibold text-slate-100 shadow-sm hover:bg-slate-900 md:hidden"
                         >
                             {language === 'vi' ? 'Nền tảng' : 'Platform'}
                         </button>
                     </div>
                     {error && (
-                        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                        <div className="mt-3 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
                             {error}
                         </div>
                     )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+                <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
                     <VideoGrid
                         videos={videos}
                         isLoading={isLoading}

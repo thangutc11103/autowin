@@ -42,12 +42,23 @@ interface ValidateInstagramCookiesResponse {
 }
 
 const PLATFORM_ACTIVE_COLORS: Record<Platform, string> = {
-    tiktok: 'bg-pink-50 border-pink-300 text-pink-700',
-    douyin: 'bg-purple-50 border-purple-300 text-purple-700',
-    facebook: 'bg-blue-50 border-blue-300 text-blue-700',
-    instagram: 'bg-orange-50 border-orange-300 text-orange-700',
-    youtube: 'bg-red-50 border-red-300 text-red-700',
+    tiktok: 'bg-pink-500/10 border-pink-400/45 text-pink-100',
+    douyin: 'bg-violet-500/10 border-violet-400/45 text-violet-100',
+    facebook: 'bg-blue-500/10 border-blue-400/45 text-blue-100',
+    instagram: 'bg-amber-500/10 border-amber-400/45 text-amber-100',
+    youtube: 'bg-red-500/10 border-red-400/45 text-red-100',
 };
+
+const PANEL_CLASS = 'mx-3 mb-3 mt-2 rounded-2xl border border-cyan-300/10 bg-slate-950/58 px-3 py-3 shadow-[0_20px_45px_rgba(0,0,0,0.22)]';
+const LABEL_CLASS = 'mb-1 block text-xs font-semibold text-slate-200';
+const TEXT_INPUT_CLASS =
+    'w-full rounded-lg border border-slate-700/70 bg-slate-950/70 px-2.5 py-2 text-xs text-slate-100 outline-none transition focus:border-cyan-300/50 focus:ring-2 focus:ring-blue-500/25 disabled:text-slate-400';
+const SECONDARY_BUTTON_CLASS =
+    'cursor-pointer rounded-xl border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-xs font-bold text-slate-100 transition-colors hover:border-cyan-300/30 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50';
+const PRIMARY_BUTTON_CLASS =
+    'cursor-pointer rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-4 py-2 text-xs font-bold text-white shadow-[0_0_20px_rgba(59,130,246,0.28)] transition-colors hover:from-blue-500 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-50';
+const HISTORY_BUTTON_CLASS =
+    'rounded-lg bg-slate-950/70 px-2 py-1.5 text-xs font-semibold text-slate-200 ring-1 ring-cyan-300/12 hover:bg-slate-900';
 
 const FILTER_COPY = {
     vi: {
@@ -184,10 +195,10 @@ function getMessage(
 
 function FilterSection({ label, children }: { label: string; children: React.ReactNode }) {
     return (
-        <div className="border-b border-gray-100 last:border-0">
-            <div className="flex items-center justify-between px-1 py-2 text-xs font-semibold text-gray-600">
+        <div className="border-b border-cyan-300/10 last:border-0">
+            <div className="flex items-center justify-between px-1 py-2 text-xs font-bold text-slate-200">
                 <span>{label}</span>
-                <span className="text-gray-400">v</span>
+                <span className="text-cyan-300/70">v</span>
             </div>
             <div className="px-1 pb-3">{children}</div>
         </div>
@@ -613,30 +624,30 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
     };
 
     return (
-        <div className="flex h-full flex-col border-r border-gray-200 bg-white">
+        <div className="flex h-full flex-col border-r border-cyan-300/10 bg-slate-950/55 backdrop-blur-xl">
             {showHeader && (
-                <div className="border-b border-gray-100 px-4 py-4">
-                    <h2 className="text-sm font-bold uppercase tracking-wide text-gray-900">{text.platformTitle}</h2>
+                <div className="border-b border-cyan-300/10 px-5 py-5">
+                    <h2 className="text-sm font-bold uppercase tracking-wide text-slate-300">{text.platformTitle}</h2>
                 </div>
             )}
 
             {submitMessage && (
                 <div
-                    className={`mx-2 mt-2 rounded-lg border px-3 py-2 text-xs font-medium ${submitMessage.type === 'success'
-                        ? 'border-green-300 bg-green-50 text-green-700'
-                        : 'border-red-300 bg-red-50 text-red-700'
+                    className={`mx-3 mt-3 rounded-xl border px-3 py-2 text-xs font-semibold ${submitMessage.type === 'success'
+                        ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
+                        : 'border-rose-400/30 bg-rose-500/10 text-rose-200'
                         }`}
                 >
                     {submitMessage.text}
                 </div>
             )}
             {workerMessage && (
-                <div className="mx-2 mt-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
+                <div className="mx-3 mt-3 rounded-xl border border-blue-400/30 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-200">
                     {workerMessage}
                 </div>
             )}
 
-            <div className="flex-1 overflow-y-auto py-2">
+            <div className="flex-1 overflow-y-auto py-3">
                 {PLATFORM_FILTER_CONFIGS.map((config) => {
                     const isActive = activePlatform === config.platform;
                     const isExpanded = expandedPlatforms.has(config.platform);
@@ -644,11 +655,11 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
                     const activeClass = isActive ? PLATFORM_ACTIVE_COLORS[config.platform] : '';
 
                     return (
-                        <div key={config.platform} className="mb-1">
+                        <div key={config.platform} className="mb-2">
                             <div
-                                className={`mx-2 flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 transition-all ${isActive
-                                    ? `${activeClass} border`
-                                    : 'border-transparent hover:bg-gray-50'
+                                className={`mx-3 flex cursor-pointer items-center justify-between rounded-xl border px-3 py-3 transition-all ${isActive
+                                    ? `${activeClass} shadow-[0_0_24px_rgba(139,92,246,0.22)]`
+                                    : 'border-transparent hover:border-cyan-300/15 hover:bg-slate-900/65'
                                     }`}
                             >
                                 <button
@@ -656,21 +667,21 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
                                     onClick={() => handlePlatformClick(config.platform)}
                                 >
                                     <span className="text-base">{config.emoji}</span>
-                                    <span className="text-sm font-semibold text-gray-700">{config.label}</span>
+                                    <span className="text-sm font-bold text-slate-100">{config.label}</span>
                                 </button>
                                 <button
                                     onClick={(event) => {
                                         event.stopPropagation();
                                         togglePlatformExpand(config.platform);
                                     }}
-                                    className="ml-1 cursor-pointer text-xs text-gray-400 hover:text-gray-600"
+                                    className="ml-1 cursor-pointer text-xs text-slate-400 hover:text-cyan-200"
                                 >
                                     &gt;
                                 </button>
                             </div>
 
                             {isExpanded && (
-                                <div className="mx-2 mb-2 mt-1 rounded-lg bg-gray-50 px-3 py-2">
+                                <div className={PANEL_CLASS}>
                                     {config.sections.map((section) => (
                                         <FilterSection key={section.label} label={text.filterSection}>
                                             {section.fields.map((field) => {
@@ -683,12 +694,12 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
 
                                                     return (
                                                         <label key={field.key} className="mb-3 block">
-                                                            <span className="mb-1 block text-xs font-medium text-gray-600">
+                                                            <span className={LABEL_CLASS}>
                                                                 {getFieldLabel(language, field.key, field.label)}
                                                             </span>
-                                                            <div className="mb-1 flex justify-between text-xs text-gray-400">
+                                                            <div className="mb-1 flex justify-between text-xs text-slate-300">
                                                                 <span>{field.min ?? 0}</span>
-                                                                <span className="font-medium text-gray-600">{val}</span>
+                                                                <span className="font-bold text-slate-100">{val}</span>
                                                                 <span>{field.max ?? 100}</span>
                                                             </div>
                                                             <input
@@ -725,7 +736,7 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
 
                                                 return (
                                                     <div key={field.key} className="mb-2 block">
-                                                        <span className="mb-1 block text-xs font-medium text-gray-600">
+                                                        <span className={LABEL_CLASS}>
                                                             {getFieldLabel(language, field.key, field.label)}
                                                         </span>
                                                         <div className={`relative ${isLockedInstagramHashtag ? 'min-h-20' : ''}`}>
@@ -737,12 +748,12 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
                                                                 onChange={(event) =>
                                                                     handleInputChange(config.platform, field.key, event.target.value)
                                                                 }
-                                                                className={`w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 ${isLockedInstagramHashtag ? 'pointer-events-none blur-[1px]' : ''
+                                                                className={`${TEXT_INPUT_CLASS} ${isLockedInstagramHashtag ? 'pointer-events-none blur-[1px]' : ''
                                                                     }`}
                                                             />
 
                                                             {isLockedInstagramHashtag && (
-                                                                <div className="absolute inset-0 rounded-md border border-orange-200 bg-white/85 p-2 shadow-sm backdrop-blur-[2px]">
+                                                                <div className="absolute inset-0 rounded-lg border border-orange-300/30 bg-slate-950/90 p-2 shadow-sm backdrop-blur">
                                                                     <div className="flex gap-2">
                                                                         <input
                                                                             type="password"
@@ -755,13 +766,13 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
                                                                                     text: '',
                                                                                 });
                                                                             }}
-                                                                            className="min-w-0 flex-1 rounded border border-orange-200 bg-white px-2 py-1 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                                                                            className="min-w-0 flex-1 rounded-lg border border-orange-300/25 bg-slate-950/80 px-2 py-1 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-orange-300/25"
                                                                         />
                                                                         <button
                                                                             type="button"
                                                                             onClick={() => void validateInstagramCookies()}
                                                                             disabled={instagramCookieStatus.type === 'checking'}
-                                                                            className="shrink-0 rounded bg-orange-600 px-2 py-1 text-xs font-semibold text-white hover:bg-orange-700 disabled:bg-orange-300"
+                                                                            className="shrink-0 rounded-lg bg-orange-600 px-2 py-1 text-xs font-semibold text-white hover:bg-orange-500 disabled:opacity-50"
                                                                         >
                                                                             {instagramCookieStatus.type === 'checking' ? 'Checking' : 'Check'}
                                                                         </button>
@@ -783,38 +794,38 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
                                     <div className="mt-3 flex justify-end gap-2">
                                         <button
                                             onClick={() => void handleClear(config.platform)}
-                                            className="cursor-pointer rounded-lg bg-gray-200 px-4 py-2 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-300"
+                                            className={SECONDARY_BUTTON_CLASS}
                                         >
                                             {text.clear}
                                         </button>
                                         <button
                                             onClick={() => void handleFind(config.platform)}
                                             disabled={isSubmitting}
-                                            className="cursor-pointer rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:bg-blue-400"
+                                            className={PRIMARY_BUTTON_CLASS}
                                         >
                                             {isSubmitting ? text.submitting : text.find}
                                         </button>
                                     </div>
-                                    <div className="mt-3 border-t border-gray-200 pt-3">
-                                        <div className="mb-2 text-xs font-semibold text-gray-500">
+                                    <div className="mt-3 border-t border-cyan-300/10 pt-3">
+                                        <div className="mb-2 text-xs font-bold text-slate-300">
                                             {text.history}
                                         </div>
                                         <div className="grid grid-cols-3 gap-2">
                                             <button
                                                 onClick={() => void cleanupHistory(config.platform, 'retention', 7)}
-                                                className="rounded-md bg-white px-2 py-1.5 text-xs font-medium text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100"
+                                                className={HISTORY_BUTTON_CLASS}
                                             >
                                                 {text.keep7d}
                                             </button>
                                             <button
                                                 onClick={() => void cleanupHistory(config.platform, 'retention', 30)}
-                                                className="rounded-md bg-white px-2 py-1.5 text-xs font-medium text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100"
+                                                className={HISTORY_BUTTON_CLASS}
                                             >
                                                 {text.keep30d}
                                             </button>
                                             <button
                                                 onClick={() => void cleanupHistory(config.platform, 'clear-history')}
-                                                className="rounded-md bg-red-50 px-2 py-1.5 text-xs font-semibold text-red-700 ring-1 ring-red-200 hover:bg-red-100"
+                                                className="rounded-lg bg-rose-500/10 px-2 py-1.5 text-xs font-bold text-rose-200 ring-1 ring-rose-400/30 hover:bg-rose-500/15"
                                             >
                                                 {text.clearHistory}
                                             </button>

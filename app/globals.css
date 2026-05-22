@@ -1,8 +1,17 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #020617;
+  --foreground: #e5edf7;
+  --dashboard-bg: #020617;
+  --dashboard-bg-soft: #06111f;
+  --dashboard-panel: rgba(15, 23, 42, 0.72);
+  --dashboard-panel-strong: rgba(2, 6, 23, 0.84);
+  --dashboard-border: rgba(34, 211, 238, 0.16);
+  --dashboard-border-strong: rgba(59, 130, 246, 0.42);
+  --dashboard-text: #f8fafc;
+  --dashboard-muted: #94a3b8;
+  --dashboard-faint: #64748b;
 }
 
 @theme inline {
@@ -23,4 +32,211 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  font-synthesis-weight: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.28);
+  color: #f8fafc;
+}
+
+* {
+  scrollbar-color: rgba(34, 211, 238, 0.34) rgba(15, 23, 42, 0.72);
+}
+
+.dashboard-shell {
+  overflow-x: hidden;
+  color: var(--dashboard-text);
+  background:
+    radial-gradient(circle at 18% 12%, rgba(59, 130, 246, 0.18), transparent 32rem),
+    radial-gradient(circle at 82% 18%, rgba(139, 92, 246, 0.16), transparent 30rem),
+    radial-gradient(circle at 58% 90%, rgba(34, 211, 238, 0.09), transparent 36rem),
+    linear-gradient(135deg, #020617 0%, #06111f 48%, #020617 100%);
+}
+
+.dashboard-shell main,
+.dashboard-shell section,
+.dashboard-shell article,
+.dashboard-shell div {
+  min-width: 0;
+}
+
+.dashboard-shell img,
+.dashboard-shell video {
+  max-width: 100%;
+}
+
+.dashboard-shell .bg-white,
+.dashboard-shell .bg-gray-50,
+.dashboard-shell .bg-gray-100 {
+  background-color: var(--dashboard-panel) !important;
+}
+
+.dashboard-shell .bg-gray-200,
+.dashboard-shell .bg-gray-300 {
+  background-color: rgba(30, 41, 59, 0.82) !important;
+}
+
+.dashboard-shell .bg-blue-50,
+.dashboard-shell .bg-sky-50,
+.dashboard-shell .bg-cyan-50 {
+  background-color: rgba(59, 130, 246, 0.12) !important;
+}
+
+.dashboard-shell .bg-purple-50,
+.dashboard-shell .bg-violet-50,
+.dashboard-shell .bg-pink-50 {
+  background-color: rgba(139, 92, 246, 0.13) !important;
+}
+
+.dashboard-shell .bg-green-50,
+.dashboard-shell .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+}
+
+.dashboard-shell .bg-yellow-50,
+.dashboard-shell .bg-amber-50,
+.dashboard-shell .bg-orange-50 {
+  background-color: rgba(245, 158, 11, 0.12) !important;
+}
+
+.dashboard-shell .bg-red-50,
+.dashboard-shell .bg-rose-50 {
+  background-color: rgba(244, 63, 94, 0.12) !important;
+}
+
+.dashboard-shell .border-gray-50,
+.dashboard-shell .border-gray-100,
+.dashboard-shell .border-gray-200,
+.dashboard-shell .border-gray-300 {
+  border-color: var(--dashboard-border) !important;
+}
+
+.dashboard-shell .divide-gray-100 > :not([hidden]) ~ :not([hidden]),
+.dashboard-shell .divide-gray-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(34, 211, 238, 0.12) !important;
+}
+
+.dashboard-shell .text-gray-950,
+.dashboard-shell .text-gray-900,
+.dashboard-shell .text-gray-800,
+.dashboard-shell .text-gray-700 {
+  color: var(--dashboard-text) !important;
+}
+
+.dashboard-shell .text-gray-600,
+.dashboard-shell .text-gray-500,
+.dashboard-shell .text-gray-400 {
+  color: var(--dashboard-muted) !important;
+}
+
+.dashboard-shell .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+.dashboard-shell .text-slate-400 {
+  color: #cbd5e1 !important;
+}
+
+.dashboard-shell .text-slate-300 {
+  color: #dbe4f0 !important;
+}
+
+.dashboard-shell .text-blue-700,
+.dashboard-shell .text-blue-600 {
+  color: #60a5fa !important;
+}
+
+.dashboard-shell .text-sky-700,
+.dashboard-shell .text-cyan-700 {
+  color: #67e8f9 !important;
+}
+
+.dashboard-shell .text-purple-700,
+.dashboard-shell .text-violet-700,
+.dashboard-shell .text-pink-700 {
+  color: #c4b5fd !important;
+}
+
+.dashboard-shell .text-green-700,
+.dashboard-shell .text-emerald-700 {
+  color: #6ee7b7 !important;
+}
+
+.dashboard-shell .text-yellow-800,
+.dashboard-shell .text-amber-800,
+.dashboard-shell .text-amber-700,
+.dashboard-shell .text-orange-700 {
+  color: #fcd34d !important;
+}
+
+.dashboard-shell .text-red-700,
+.dashboard-shell .text-red-600 {
+  color: #fb7185 !important;
+}
+
+.dashboard-shell input,
+.dashboard-shell textarea,
+.dashboard-shell select {
+  color: #e5edf7;
+  background: rgba(2, 6, 23, 0.62) !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+}
+
+.dashboard-shell input::placeholder,
+.dashboard-shell textarea::placeholder {
+  color: rgba(203, 213, 225, 0.78);
+}
+
+.dashboard-shell option {
+  color: #e5edf7;
+  background: #020617;
+}
+
+.dashboard-shell button,
+.dashboard-shell a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dashboard-shell .bg-blue-600 {
+  background-image: linear-gradient(135deg, #2563eb, #7c3aed) !important;
+  box-shadow: 0 0 22px rgba(59, 130, 246, 0.24);
+}
+
+.dashboard-shell .bg-red-600 {
+  background-image: linear-gradient(135deg, #e11d48, #ef4444) !important;
+  box-shadow: 0 0 22px rgba(244, 63, 94, 0.24);
+}
+
+.dashboard-shell .bg-amber-600 {
+  background-image: linear-gradient(135deg, #d97706, #f59e0b) !important;
+}
+
+.dashboard-shell .shadow-sm,
+.dashboard-shell .shadow-lg,
+.dashboard-shell .shadow-2xl {
+  box-shadow:
+    0 20px 55px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+}
+
+.dashboard-shell section,
+.dashboard-shell [class*="rounded-lg"][class*="border"] {
+  backdrop-filter: blur(16px);
+}
+
+.dashboard-shell table thead tr {
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.dashboard-shell th,
+.dashboard-shell td {
+  color: #cbd5e1;
+}
+
+.dashboard-shell table tbody tr:hover {
+  background: rgba(59, 130, 246, 0.08);
 }
