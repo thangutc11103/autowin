@@ -4,12 +4,28 @@ import { navItems } from '@/config/nav';
 import { useLanguageStore } from '@/store/language.store';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const NAV_LINK_BASE = 'mb-2 flex items-center gap-3 rounded-xl border px-3 py-3 text-sm font-semibold transition-all';
 const NAV_LINK_ACTIVE = 'border-blue-400/50 bg-blue-500/15 text-cyan-100 shadow-[0_0_22px_rgba(59,130,246,0.22)]';
 const NAV_LINK_IDLE = 'border-transparent text-slate-300 hover:border-cyan-300/15 hover:bg-slate-900/80 hover:text-slate-100';
-const MOBILE_NAV_BASE = 'flex min-w-16 shrink-0 items-center justify-center rounded-lg px-2 py-2 text-[11px] font-semibold';
+const MOBILE_NAV_BASE = 'flex min-w-0 flex-1 items-center justify-center rounded-lg px-2 py-2 text-[11px] font-semibold';
+const SENSITIVE_HREFS = new Set(['/accounts', '/automation', '/admin']);
+const PRIMARY_MOBILE_HREFS = new Set(['/dashboard', '/discover', '/selected', '/queue']);
+
+type AuthMeResponse = {
+    user?: {
+        role?: string | null;
+    } | null;
+};
+
+function canShowNavItem(href: string, role: string | null) {
+    if (!SENSITIVE_HREFS.has(href)) {
+        return true;
+    }
+
+    return role === 'owner' || role === 'admin';
+}
 
 export default function Sidebar() {
     const pathname = usePathname();
@@ -17,6 +33,43 @@ export default function Sidebar() {
     const language = useLanguageStore((state) => state.language);
     const setLanguage = useLanguageStore((state) => state.setLanguage);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
+    const [userRole, setUserRole] = useState<string | null>(null);
+    const [isMoreOpen, setIsMoreOpen] = useState(false);
+
+    useEffect(() => {
+        let isMounted = true;
+
+        fetch('/api/auth/me', { cache: 'no-store' })
+            .then(async (response) => {
+                if (!response.ok) return null;
+                return (await response.json()) as AuthMeResponse;
+            })
+            .then((result) => {
+                if (isMounted) {
+                    setUserRole(result?.user?.role || 'viewer');
+                }
+            })
+            .catch(() => {
+                if (isMounted) {
+                    setUserRole('viewer');
+                }
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        setIsMoreOpen(false);
+    }, [pathname]);
+
+    const visibleNavItems = useMemo(
+        () => navItems.filter((item) => canShowNavItem(item.href, userRole)),
+        [userRole],
+    );
+    const primaryMobileItems = visibleNavItems.filter((item) => PRIMARY_MOBILE_HREFS.has(item.href));
+    const secondaryMobileItems = visibleNavItems.filter((item) => !PRIMARY_MOBILE_HREFS.has(item.href));
 
     const handleLogout = async () => {
         setIsLoggingOut(true);
@@ -73,7 +126,7 @@ export default function Sidebar() {
             <aside className="fixed left-0 top-0 z-20 hidden h-full w-56 flex-col border-r border-cyan-300/10 bg-slate-950/78 shadow-[18px_0_55px_rgba(0,0,0,0.32)] backdrop-blur-xl md:flex">
                 <div className="border-b border-cyan-300/10 px-5 py-6">{brand}</div>
                 <nav className="flex-1 px-3 py-5">
-                    {navItems.map((item) => {
+                    {visibleNavItems.map((item) => {
                         const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
                         return (
                             <Link
@@ -104,8 +157,41 @@ export default function Sidebar() {
                 </div>
             </aside>
 
-            <nav className="fixed inset-x-0 bottom-0 z-30 flex gap-1 overflow-x-auto border-t border-cyan-300/10 bg-slate-950/92 px-1 py-1 shadow-[0_-12px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl md:hidden">
-                {navItems.map((item) => {
+            {isMoreOpen && secondaryMobileItems.length > 0 && (
+                <div className="fixed inset-x-3 bottom-16 z-30 rounded-2xl border border-cyan-300/15 bg-slate-950/96 p-2 shadow-[0_-18px_45px_rgba(0,0,0,0.45)] backdrop-blur-xl md:hidden">
+                    {secondaryMobileItems.map((item) => {
+                        const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+                        return (
+                            <Link
+                                key={item.href}
+                                href={item.href}
+                                className={`mb-1 flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold ${isActive
+                                    ? 'bg-blue-500/20 text-cyan-100 ring-1 ring-blue-400/35'
+                                    : 'text-slate-300 hover:bg-slate-900 hover:text-slate-100'
+                                    }`}
+                            >
+                                <span className="grid size-7 place-items-center rounded-lg bg-slate-900 text-xs font-black text-slate-400">
+                                    {item.icon}
+                                </span>
+                                <span>{item.label[language]}</span>
+                            </Link>
+                        );
+                    })}
+                    <button
+                        type="button"
+                        onClick={handleLogout}
+                        disabled={isLoggingOut}
+                        className="mt-2 w-full rounded-xl bg-gradient-to-r from-rose-600 to-red-500 px-3 py-3 text-xs font-bold text-white disabled:opacity-50"
+                    >
+                        {isLoggingOut
+                            ? language === 'vi' ? 'Đang đăng xuất...' : 'Signing out...'
+                            : language === 'vi' ? 'Đăng xuất' : 'Sign out'}
+                    </button>
+                </div>
+            )}
+
+            <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 gap-1 border-t border-cyan-300/10 bg-slate-950/92 px-1 py-1 shadow-[0_-12px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl md:hidden">
+                {primaryMobileItems.map((item) => {
                     const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
                     return (
                         <Link
@@ -120,6 +206,16 @@ export default function Sidebar() {
                         </Link>
                     );
                 })}
+                <button
+                    type="button"
+                    onClick={() => setIsMoreOpen((value) => !value)}
+                    className={`${MOBILE_NAV_BASE} ${isMoreOpen
+                        ? 'bg-blue-500/20 text-cyan-100 ring-1 ring-blue-400/35'
+                        : 'text-slate-300'
+                        }`}
+                >
+                    {language === 'vi' ? 'Menu' : 'More'}
+                </button>
             </nav>
         </>
     );
