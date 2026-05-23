@@ -70,6 +70,7 @@ export default function Sidebar() {
     );
     const primaryMobileItems = visibleNavItems.filter((item) => PRIMARY_MOBILE_HREFS.has(item.href));
     const secondaryMobileItems = visibleNavItems.filter((item) => !PRIMARY_MOBILE_HREFS.has(item.href));
+    const hasSecondaryMobileItems = secondaryMobileItems.length > 0;
 
     const handleLogout = async () => {
         setIsLoggingOut(true);
@@ -157,7 +158,7 @@ export default function Sidebar() {
                 </div>
             </aside>
 
-            {isMoreOpen && secondaryMobileItems.length > 0 && (
+            {isMoreOpen && hasSecondaryMobileItems && (
                 <div className="fixed inset-x-3 bottom-16 z-30 rounded-2xl border border-cyan-300/15 bg-slate-950/96 p-2 shadow-[0_-18px_45px_rgba(0,0,0,0.45)] backdrop-blur-xl md:hidden">
                     {secondaryMobileItems.map((item) => {
                         const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
@@ -190,7 +191,7 @@ export default function Sidebar() {
                 </div>
             )}
 
-            <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 gap-1 border-t border-cyan-300/10 bg-slate-950/92 px-1 py-1 shadow-[0_-12px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl md:hidden">
+            <nav className={`fixed inset-x-0 bottom-0 z-30 grid ${hasSecondaryMobileItems ? 'grid-cols-5' : 'grid-cols-4'} gap-1 border-t border-cyan-300/10 bg-slate-950/92 px-1 py-1 shadow-[0_-12px_30px_rgba(0,0,0,0.35)] backdrop-blur-xl md:hidden`}>
                 {primaryMobileItems.map((item) => {
                     const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
                     return (
@@ -206,16 +207,18 @@ export default function Sidebar() {
                         </Link>
                     );
                 })}
-                <button
-                    type="button"
-                    onClick={() => setIsMoreOpen((value) => !value)}
-                    className={`${MOBILE_NAV_BASE} ${isMoreOpen
-                        ? 'bg-blue-500/20 text-cyan-100 ring-1 ring-blue-400/35'
-                        : 'text-slate-300'
-                        }`}
-                >
-                    {language === 'vi' ? 'Menu' : 'More'}
-                </button>
+                {hasSecondaryMobileItems && (
+                    <button
+                        type="button"
+                        onClick={() => setIsMoreOpen((value) => !value)}
+                        className={`${MOBILE_NAV_BASE} ${isMoreOpen
+                            ? 'bg-blue-500/20 text-cyan-100 ring-1 ring-blue-400/35'
+                            : 'text-slate-300'
+                            }`}
+                    >
+                        {language === 'vi' ? 'Menu' : 'More'}
+                    </button>
+                )}
             </nav>
         </>
     );
