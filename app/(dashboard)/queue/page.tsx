@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLanguageStore } from '@/store/language.store';
 
 type StopResponse = {
@@ -56,7 +56,7 @@ type CleanupResponse = {
 const TEXT = {
   vi: {
     title: 'Bảng điều khiển hàng đợi',
-    description: 'Theo dõi job đang chạy và dọn các trạng thái hàng đợi an toàn.',
+    description: 'Theo dõi job đang chạy và dọn trạng thái hàng đợi một cách có kiểm soát.',
     refresh: 'Làm mới',
     refreshing: 'Đang làm mới...',
     activeJobs: 'Job đang chạy',
@@ -64,12 +64,16 @@ const TEXT = {
     runningJobs: 'Job đang xử lý',
     noActiveJobs: 'Hiện không có job đang chạy.',
     clearJobs: 'Dọn job',
-    clearDescription: 'Chỉ dọn các job không còn active. Thao tác này không thể hoàn tác.',
+    cleanupTitle: 'Dọn lịch sử hàng đợi',
+    clearDescription: 'Thao tác này chỉ nên dùng khi bạn đã kiểm tra job không còn active.',
     cleanupScope: 'Phạm vi dọn dẹp',
-    confirm: 'Tôi hiểu thao tác này sẽ xóa lịch sử hàng đợi trong phạm vi đã chọn.',
+    confirm: 'Tôi hiểu thao tác này không thể hoàn tác.',
+    cancel: 'Hủy',
+    confirmAction: 'Xác nhận dọn job',
     clearing: 'Đang dọn...',
     stop: 'Dừng',
     stopping: 'Đang dừng...',
+    confirmRequired: 'Vui lòng xác nhận trước khi dọn hàng đợi.',
     columns: {
       jobId: 'Mã job',
       title: 'Tiêu đề',
@@ -89,7 +93,7 @@ const TEXT = {
   },
   en: {
     title: 'Queue Dashboard',
-    description: 'Monitor active jobs and clear safe queue states.',
+    description: 'Monitor active jobs and clear queue states with explicit confirmation.',
     refresh: 'Refresh',
     refreshing: 'Refreshing...',
     activeJobs: 'Active jobs',
@@ -97,12 +101,16 @@ const TEXT = {
     runningJobs: 'Running jobs',
     noActiveJobs: 'No active jobs at the moment.',
     clearJobs: 'Clear jobs',
-    clearDescription: 'Only non-active scopes are available. This action cannot be undone.',
+    cleanupTitle: 'Clear queue history',
+    clearDescription: 'Use this only after checking that no active job will be affected.',
     cleanupScope: 'Cleanup scope',
-    confirm: 'I understand this will remove queued history for the selected scope.',
+    confirm: 'I understand this action cannot be undone.',
+    cancel: 'Cancel',
+    confirmAction: 'Confirm cleanup',
     clearing: 'Clearing...',
     stop: 'Stop',
     stopping: 'Stopping...',
+    confirmRequired: 'Please confirm before clearing the queue.',
     columns: {
       jobId: 'Job ID',
       title: 'Title',
@@ -122,28 +130,15 @@ const TEXT = {
   },
 };
 
-const SCOPE_OPTIONS: Array<{ value: QueueCleanupScope; needsConfirm: boolean }> = [
-  { value: 'finished', needsConfirm: false },
-  { value: 'waiting', needsConfirm: true },
-  { value: 'all-non-active', needsConfirm: true },
-];
+const SCOPE_OPTIONS: QueueCleanupScope[] = ['finished', 'waiting', 'all-non-active'];
 
 function formatProgress(progress: InspectJobData['progress']) {
-  if (typeof progress === 'number') {
-    return `${progress}%`;
-  }
-
-  if (!progress || typeof progress !== 'object') {
-    return '0%';
-  }
+  if (typeof progress === 'number') return `${progress}%`;
+  if (!progress || typeof progress !== 'object') return '0%';
 
   const total = Number((progress as Record<string, unknown>).total || 0);
   const current = Number((progress as Record<string, unknown>).current || 0);
-
-  if (total > 0) {
-    return `${Math.min(100, Math.round((current / total) * 100))}%`;
-  }
-
+  if (total > 0) return `${Math.min(100, Math.round((current / total) * 100))}%`;
   return 'In progress';
 }
 
@@ -152,9 +147,7 @@ function formatElapsed(startedAt: string | null) {
   const diffMs = Date.now() - new Date(startedAt).getTime();
   if (!Number.isFinite(diffMs) || diffMs < 0) return '-';
   const totalSeconds = Math.floor(diffMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${seconds}s`;
+  return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
 }
 
 function getJobStartTime(job: InspectJobData): string | null {
@@ -173,18 +166,15 @@ export default function QueuePage() {
   const [jobs, setJobs] = useState<InspectJobData[]>([]);
   const [waitingCount, setWaitingCount] = useState(0);
   const [activeCount, setActiveCount] = useState(0);
-
   const [scope, setScope] = useState<QueueCleanupScope>('finished');
-  const [confirmDestructive, setConfirmDestructive] = useState(false);
+  const [confirmCleanup, setConfirmCleanup] = useState(false);
+  const [isCleanupOpen, setIsCleanupOpen] = useState(false);
   const [cleaning, setCleaning] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
   const [stoppingJobId, setStoppingJobId] = useState<string | null>(null);
   const [stopMessage, setStopMessage] = useState<string | null>(null);
 
-  const selectedScope = useMemo(
-    () => SCOPE_OPTIONS.find((item) => item.value === scope) || SCOPE_OPTIONS[0],
-    [scope],
-  );
+  const selectedScopeLabel = useMemo(() => text.scopes[scope], [scope, text.scopes]);
 
   const fetchRunningJobs = async () => {
     setLoadingJobs(true);
@@ -211,6 +201,10 @@ export default function QueuePage() {
     }
   };
 
+  useEffect(() => {
+    void fetchRunningJobs();
+  }, []);
+
   const stopJob = async (jobId: string) => {
     setStoppingJobId(jobId);
     setStopMessage(null);
@@ -218,16 +212,11 @@ export default function QueuePage() {
     try {
       const response = await fetch('/api/filter/stop', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobId }),
       });
-
       const result = (await response.json()) as StopResponse;
-      if (!response.ok || result.error) {
-        throw new Error(result.error || 'Failed to stop job');
-      }
+      if (!response.ok || result.error) throw new Error(result.error || 'Failed to stop job');
 
       setStopMessage(result.message || 'Job stopped.');
       await fetchRunningJobs();
@@ -239,8 +228,8 @@ export default function QueuePage() {
   };
 
   const clearJobs = async () => {
-    if (selectedScope.needsConfirm && !confirmDestructive) {
-      setCleanupMessage('Please confirm before clearing this scope.');
+    if (!confirmCleanup) {
+      setCleanupMessage(text.confirmRequired);
       return;
     }
 
@@ -250,27 +239,19 @@ export default function QueuePage() {
     try {
       const response = await fetch('/api/filter/cleanup', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          mode: 'queue',
-          scope,
-          confirm: selectedScope.needsConfirm ? true : undefined,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'queue', scope, confirm: true }),
       });
-
       const result = (await response.json()) as CleanupResponse;
-      if (!response.ok || result.error) {
-        throw new Error(result.error || 'Failed to clear jobs');
-      }
+      if (!response.ok || result.error) throw new Error(result.error || 'Failed to clear jobs');
 
       const removed = result.removedByState;
       const removedText = removed
         ? ` waiting=${removed.waiting}, completed=${removed.completed}, failed=${removed.failed}`
         : '';
       setCleanupMessage(`Done. Removed ${result.cleanedCount || 0} jobs.${removedText}`);
-      setConfirmDestructive(false);
+      setConfirmCleanup(false);
+      setIsCleanupOpen(false);
       await fetchRunningJobs();
     } catch (error) {
       setCleanupMessage(error instanceof Error ? error.message : 'Failed to clear jobs');
@@ -281,22 +262,22 @@ export default function QueuePage() {
 
   return (
     <div className="h-full overflow-auto p-4 sm:p-6">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-950">{text.title}</h1>
-          <p className="mt-1 text-sm text-gray-600">{text.description}</p>
+          <p className="mt-1 max-w-xl text-sm text-gray-600">{text.description}</p>
         </div>
 
         <button
           onClick={() => void fetchRunningJobs()}
           disabled={loadingJobs}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+          className="w-fit rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
         >
           {loadingJobs ? text.refreshing : text.refresh}
         </button>
       </div>
 
-      <div className="mb-6 grid gap-3 md:grid-cols-2">
+      <div className="mb-6 grid gap-3 sm:grid-cols-2">
         <div className="rounded-lg border border-gray-200 bg-white p-4">
           <div className="text-xs font-semibold uppercase text-gray-500">{text.activeJobs}</div>
           <div className="mt-2 text-2xl font-bold text-emerald-700">{activeCount}</div>
@@ -307,14 +288,37 @@ export default function QueuePage() {
         </div>
       </div>
 
-      <div className="mb-8 rounded-lg border border-gray-200 bg-white p-4">
+      <section className="mb-8 rounded-lg border border-gray-200 bg-white p-4">
         <h2 className="mb-3 text-base font-semibold text-gray-900">{text.runningJobs}</h2>
         {jobsError ? (
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{jobsError}</div>
         ) : jobs.length === 0 ? (
           <p className="text-sm text-gray-500">{text.noActiveJobs}</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="grid gap-3 lg:hidden">
+            {jobs.map((job) => (
+              <div key={job.id} className="rounded-lg border border-gray-200 p-3 text-sm">
+                <div className="font-semibold text-gray-900">{job.data?.title || job.id}</div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-gray-600">
+                  <span>{text.columns.platform}: {job.data?.platform || '-'}</span>
+                  <span>{text.columns.progress}: {formatProgress(job.progress)}</span>
+                  <span>{text.columns.attempts}: {job.attempts}/{job.maxAttempts || 0}</span>
+                  <span>{text.columns.elapsed}: {formatElapsed(getJobStartTime(job))}</span>
+                </div>
+                <button
+                  onClick={() => void stopJob(job.id)}
+                  disabled={stoppingJobId === job.id || !isStopEligible(job.state)}
+                  className="mt-3 rounded-md bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-amber-300"
+                >
+                  {stoppingJobId === job.id ? text.stopping : text.stop}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {jobs.length > 0 && !jobsError && (
+          <div className="hidden overflow-x-auto lg:block">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase text-gray-500">
@@ -357,60 +361,80 @@ export default function QueuePage() {
         )}
 
         {stopMessage && (
-          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-            {stopMessage}
-          </div>
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">{stopMessage}</div>
         )}
-      </div>
+      </section>
 
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
-        <h2 className="mb-2 text-base font-semibold text-gray-900">{text.clearJobs}</h2>
+      <section className="rounded-lg border border-gray-200 bg-white p-4">
+        <h2 className="mb-2 text-base font-semibold text-gray-900">{text.cleanupTitle}</h2>
         <p className="mb-3 text-sm text-gray-600">{text.clearDescription}</p>
 
-        <div className="mb-3">
+        <div className="mb-4">
           <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">{text.cleanupScope}</label>
           <select
             value={scope}
             onChange={(event) => {
               setScope(event.target.value as QueueCleanupScope);
-              setConfirmDestructive(false);
+              setConfirmCleanup(false);
             }}
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
           >
             {SCOPE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {text.scopes[option.value]}
-              </option>
+              <option key={option} value={option}>{text.scopes[option]}</option>
             ))}
           </select>
         </div>
 
-        {selectedScope.needsConfirm && (
-          <label className="mb-3 flex items-center gap-2 text-sm text-amber-700">
-            <input
-              type="checkbox"
-              checked={confirmDestructive}
-              onChange={(event) => setConfirmDestructive(event.target.checked)}
-              className="size-4 accent-amber-600"
-            />
-            {text.confirm}
-          </label>
-        )}
-
         <button
-          onClick={() => void clearJobs()}
-          disabled={cleaning || (selectedScope.needsConfirm && !confirmDestructive)}
+          onClick={() => setIsCleanupOpen(true)}
+          disabled={cleaning}
           className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
         >
           {cleaning ? text.clearing : text.clearJobs}
         </button>
 
         {cleanupMessage && (
-          <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
-            {cleanupMessage}
-          </div>
+          <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">{cleanupMessage}</div>
         )}
-      </div>
+      </section>
+
+      {isCleanupOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-cyan-300/20 bg-slate-950 p-5 text-slate-100 shadow-2xl">
+            <h3 className="text-lg font-bold">{text.cleanupTitle}</h3>
+            <p className="mt-2 text-sm text-slate-300">{selectedScopeLabel}</p>
+            <label className="mt-4 flex items-start gap-3 rounded-xl border border-amber-300/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+              <input
+                type="checkbox"
+                checked={confirmCleanup}
+                onChange={(event) => setConfirmCleanup(event.target.checked)}
+                className="mt-0.5 size-4 accent-amber-500"
+              />
+              <span>{text.confirm}</span>
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCleanupOpen(false);
+                  setConfirmCleanup(false);
+                }}
+                className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900"
+              >
+                {text.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={() => void clearJobs()}
+                disabled={cleaning || !confirmCleanup}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
+              >
+                {cleaning ? text.clearing : text.confirmAction}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
