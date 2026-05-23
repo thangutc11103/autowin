@@ -439,15 +439,9 @@ function setupPublishWorker() {
             platformResponse: result.response,
           });
         } else {
-          // Placeholder adapter: real platform publishing APIs plug in here.
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          await markTargetPublished({
-            tenantId,
-            userId,
-            postId,
-            targetId,
-            platformResponse: { mocked: true, platform: context.platform },
-          });
+          throw new Error(
+            `Publishing adapter is not implemented for ${context.platform}`,
+          );
         }
 
         console.log(`[PUBLISH ${job.id}] Completed post=${postId} target=${targetId}`);
@@ -455,7 +449,7 @@ function setupPublishWorker() {
           postId,
           targetId,
           publishedAt: new Date().toISOString(),
-          mocked: context.platform !== "facebook",
+          platform: context.platform,
         };
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);

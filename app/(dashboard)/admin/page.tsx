@@ -38,6 +38,12 @@ interface ManagedUser {
   account_permissions?: AccountPermission[];
 }
 
+interface AuthMeResponse {
+  user?: {
+    role?: Role | string | null;
+  } | null;
+}
+
 const roleOptions: Role[] = ["viewer", "editor", "admin", "owner"];
 const defaultFeatures = [
   "scrape_tiktok",
@@ -127,6 +133,7 @@ export default function AdminPage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [currentUserRole, setCurrentUserRole] = useState<Role | null>(null);
   const [form, setForm] = useState({
     id: "",
     email: "",
@@ -142,6 +149,12 @@ export default function AdminPage() {
     () => users.find((user) => user.id === selectedUserId) || null,
     [selectedUserId, users],
   );
+  const isAdminManagingOwner =
+    currentUserRole === "admin" && selectedUser?.role === "owner";
+  const ownerProtectedMessage =
+    language === "vi"
+      ? "Chỉ owner mới có thể xử lý tài khoản owner."
+      : "Only owner can manage an owner account.";
 
   async function loadUsers() {
     try {
@@ -166,7 +179,20 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    loadUsers().catch((error) => {
+    void Promise.all([
+      fetch("/api/auth/me", { cache: "no-store" })
+        .then(async (response) => {
+          if (!response.ok) return null;
+          return (await response.json()) as AuthMeResponse;
+        })
+        .then((result) => {
+          const role = result?.user?.role;
+          if (role === "owner" || role === "admin" || role === "editor" || role === "viewer") {
+            setCurrentUserRole(role);
+          }
+        }),
+      loadUsers(),
+    ]).catch((error) => {
       setMessage(error instanceof Error ? error.message : text.failedLoad);
     });
   }, []);
@@ -538,6 +564,11 @@ export default function AdminPage() {
                 <button
                   type="button"
                   onClick={async () => {
+                    if (isAdminManagingOwner) {
+                      setMessage(ownerProtectedMessage);
+                      return;
+                    }
+
                     setMessage(null);
                     const response = await fetch("/api/admin/users", {
                       method: "DELETE",
@@ -551,7 +582,9 @@ export default function AdminPage() {
                         : result.error || text.failedRevoke,
                     );
                   }}
-                  className="mr-3 rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+                  disabled={isAdminManagingOwner}
+                  title={isAdminManagingOwner ? ownerProtectedMessage : undefined}
+                  className="mr-3 rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {text.signOutDevices}
                 </button>

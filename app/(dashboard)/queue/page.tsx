@@ -202,7 +202,11 @@ export default function QueuePage() {
   };
 
   useEffect(() => {
-    void fetchRunningJobs();
+    const timeoutId = window.setTimeout(() => {
+      void fetchRunningJobs();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
   }, []);
 
   const stopJob = async (jobId: string) => {

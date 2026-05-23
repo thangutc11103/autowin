@@ -83,7 +83,7 @@ export function getPublishQueue(): Queue<PublishJobData> {
     publishQueue = new Queue<PublishJobData>(POST_QUEUE_NAME, {
       connection,
       defaultJobOptions: {
-        attempts: 3,
+        attempts: 1,
         backoff: {
           type: "exponential",
           delay: 5000,
@@ -146,6 +146,7 @@ export async function addPublishJob(params: {
     {
       jobId: `publish-${params.targetId}`,
       delay: Math.max(0, params.delayMs || 0),
+      attempts: 1,
     },
   );
 

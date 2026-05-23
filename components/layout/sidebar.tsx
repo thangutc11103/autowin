@@ -1,6 +1,6 @@
 'use client';
 
-import { navItems } from '@/config/nav';
+import { navItems, type DashboardRole } from '@/config/nav';
 import { useLanguageStore } from '@/store/language.store';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -10,21 +10,16 @@ const NAV_LINK_BASE = 'mb-2 flex items-center gap-3 rounded-xl border px-3 py-3 
 const NAV_LINK_ACTIVE = 'border-blue-400/50 bg-blue-500/15 text-cyan-100 shadow-[0_0_22px_rgba(59,130,246,0.22)]';
 const NAV_LINK_IDLE = 'border-transparent text-slate-300 hover:border-cyan-300/15 hover:bg-slate-900/80 hover:text-slate-100';
 const MOBILE_NAV_BASE = 'flex min-w-0 flex-1 items-center justify-center rounded-lg px-2 py-2 text-[11px] font-semibold';
-const SENSITIVE_HREFS = new Set(['/accounts', '/automation', '/admin']);
 const PRIMARY_MOBILE_HREFS = new Set(['/dashboard', '/discover', '/selected', '/queue']);
 
-type AuthMeResponse = {
+interface AuthMeResponse {
     user?: {
         role?: string | null;
     } | null;
-};
+}
 
-function canShowNavItem(href: string, role: string | null) {
-    if (!SENSITIVE_HREFS.has(href)) {
-        return true;
-    }
-
-    return role === 'owner' || role === 'admin';
+function isDashboardRole(role: string | null | undefined): role is DashboardRole {
+    return role === 'owner' || role === 'admin' || role === 'editor' || role === 'viewer';
 }
 
 export default function Sidebar() {
@@ -33,44 +28,50 @@ export default function Sidebar() {
     const language = useLanguageStore((state) => state.language);
     const setLanguage = useLanguageStore((state) => state.setLanguage);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
-    const [userRole, setUserRole] = useState<string | null>(null);
     const [isMoreOpen, setIsMoreOpen] = useState(false);
+    const [role, setRole] = useState<DashboardRole | null>(null);
+
+    const visibleNavItems = useMemo(
+        () => navItems.filter((item) => role && item.roles.includes(role)),
+        [role],
+    );
+    const primaryMobileItems = visibleNavItems.filter((item) => PRIMARY_MOBILE_HREFS.has(item.href));
+    const secondaryMobileItems = visibleNavItems.filter((item) => !PRIMARY_MOBILE_HREFS.has(item.href));
+    const hasSecondaryMobileItems = secondaryMobileItems.length > 0;
 
     useEffect(() => {
-        let isMounted = true;
+        let cancelled = false;
 
-        fetch('/api/auth/me', { cache: 'no-store' })
+        void fetch('/api/auth/me', { cache: 'no-store' })
             .then(async (response) => {
                 if (!response.ok) return null;
                 return (await response.json()) as AuthMeResponse;
             })
             .then((result) => {
-                if (isMounted) {
-                    setUserRole(result?.user?.role || 'viewer');
-                }
+                if (cancelled) return;
+                const nextRole = result?.user?.role;
+                setRole(isDashboardRole(nextRole) ? nextRole : 'viewer');
             })
             .catch(() => {
-                if (isMounted) {
-                    setUserRole('viewer');
-                }
+                if (!cancelled) setRole('viewer');
             });
 
         return () => {
-            isMounted = false;
+            cancelled = true;
         };
     }, []);
 
     useEffect(() => {
-        setIsMoreOpen(false);
-    }, [pathname]);
+        if (!role || visibleNavItems.length === 0) return;
 
-    const visibleNavItems = useMemo(
-        () => navItems.filter((item) => canShowNavItem(item.href, userRole)),
-        [userRole],
-    );
-    const primaryMobileItems = visibleNavItems.filter((item) => PRIMARY_MOBILE_HREFS.has(item.href));
-    const secondaryMobileItems = visibleNavItems.filter((item) => !PRIMARY_MOBILE_HREFS.has(item.href));
-    const hasSecondaryMobileItems = secondaryMobileItems.length > 0;
+        const canViewCurrentPath = visibleNavItems.some(
+            (item) => pathname === item.href || pathname.startsWith(item.href + '/'),
+        );
+
+        if (!canViewCurrentPath) {
+            router.replace(visibleNavItems[0].href);
+        }
+    }, [pathname, role, router, visibleNavItems]);
 
     const handleLogout = async () => {
         setIsLoggingOut(true);
@@ -166,6 +167,7 @@ export default function Sidebar() {
                             <Link
                                 key={item.href}
                                 href={item.href}
+                                onClick={() => setIsMoreOpen(false)}
                                 className={`mb-1 flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold ${isActive
                                     ? 'bg-blue-500/20 text-cyan-100 ring-1 ring-blue-400/35'
                                     : 'text-slate-300 hover:bg-slate-900 hover:text-slate-100'
@@ -198,6 +200,7 @@ export default function Sidebar() {
                         <Link
                             key={item.href}
                             href={item.href}
+                            onClick={() => setIsMoreOpen(false)}
                             className={`${MOBILE_NAV_BASE} ${isActive
                                 ? 'bg-blue-500/20 text-cyan-100 ring-1 ring-blue-400/35'
                                 : 'text-slate-300'

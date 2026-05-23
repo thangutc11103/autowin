@@ -1,5 +1,6 @@
 import {
   FEATURE_KEYS,
+  isAdminRequest,
   listFeatureDefinitions,
   listManagedUsers,
   requireAdmin,
@@ -10,7 +11,7 @@ import {
   type UserRole,
   type UserStatus,
 } from "@/lib/auth/access-control";
-import { hashPassword, revokeUserSessions } from "@/lib/auth/session-auth";
+import { getCurrentUser, hashPassword, revokeUserSessions } from "@/lib/auth/session-auth";
 import { oauthStorage } from "@/lib/oauth-storage";
 import { getTenantIdFromRequest } from "@/lib/tenant-context";
 
@@ -209,6 +210,19 @@ export async function DELETE(request: Request) {
 
     if (!userId) {
       return Response.json({ error: "User id is required" }, { status: 400 });
+    }
+
+    if (!isAdminRequest(request)) {
+      const currentUser = await getCurrentUser(request);
+      const users = await listManagedUsers(tenantId);
+      const targetUser = users.find((user) => user.id === userId);
+
+      if (currentUser?.role === "admin" && targetUser?.role === "owner") {
+        return Response.json(
+          { error: "Only owner can manage an owner account" },
+          { status: 403 },
+        );
+      }
     }
 
     await revokeUserSessions({ tenantId, userId });
