@@ -220,6 +220,105 @@ export class TikTokDecodoScraper {
     }
   }
 
+  private parseDirectVideoUrl(url: string): {
+    author: string;
+    videoId: string;
+    canonicalUrl: string;
+  } | null {
+    try {
+      const parsed = new URL(url);
+      const hostname = parsed.hostname.replace(/^www\./, "");
+      const match = parsed.pathname.match(/^\/@([^/]+)\/video\/(\d+)/);
+
+      if (hostname !== "tiktok.com" || !match?.[1] || !match[2]) {
+        return null;
+      }
+
+      return {
+        author: match[1],
+        videoId: match[2],
+        canonicalUrl: `https://www.tiktok.com/@${match[1]}/video/${match[2]}`,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async crawlDirectVideoWithPlaywright(url: string): Promise<TikTokListingVideo[]> {
+    const parsedVideo = this.parseDirectVideoUrl(url);
+
+    if (!parsedVideo) {
+      throw new Error("TikTok video URL must be a valid /@user/video/id link");
+    }
+
+    console.log(`  [->] Playwright TikTok video URL: ${parsedVideo.canonicalUrl}`);
+
+    let browser: Browser | null = null;
+
+    try {
+      browser = await this.createBrowser();
+      const context = await browser.newContext({
+        ...devices["Desktop Chrome"],
+        locale: "vi-VN",
+        userAgent:
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      });
+      const page = await context.newPage();
+      const response = await page.goto(parsedVideo.canonicalUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      });
+
+      if (response && response.status() >= 400) {
+        throw new Error(`TikTok video URL returned HTTP ${response.status()}`);
+      }
+
+      await page.waitForTimeout(3500);
+
+      const video = await page.evaluate((fallback) => {
+        const getMeta = (selector: string) =>
+          document.querySelector(selector)?.getAttribute("content")?.trim() || "";
+        const unavailableText = document.body.innerText || "";
+
+        if (
+          /video isn't available|couldn't find this video|không khả dụng|không tìm thấy/i.test(
+            unavailableText,
+          )
+        ) {
+          return null;
+        }
+
+        const title =
+          getMeta("meta[property='og:title']") ||
+          getMeta("meta[name='description']") ||
+          document.title ||
+          "TikTok video";
+        const thumbnailUrl = getMeta("meta[property='og:image']") || null;
+
+        return {
+          platform: "tiktok" as const,
+          video_url: fallback.canonicalUrl,
+          video_id: fallback.videoId,
+          author: fallback.author,
+          thumbnail_url: thumbnailUrl,
+          title,
+        };
+      }, parsedVideo);
+
+      await context.close();
+
+      if (!video) {
+        throw new Error("TikTok video URL was not found or is unavailable");
+      }
+
+      return [video];
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
+    }
+  }
+
   private getPlaywrightFallbackUrl(url: string, type: JobType): string {
     if (type !== "hashtag") {
       return url;
@@ -277,6 +376,16 @@ export class TikTokDecodoScraper {
         );
 
         return this.buildListingResult(type, url, searchVideos);
+      }
+
+      if (type === "url") {
+        const directVideos = await this.crawlDirectVideoWithPlaywright(url);
+
+        console.log(
+          `  [Done] Found ${directVideos.length} direct video URL result`,
+        );
+
+        return this.buildListingResult(type, url, directVideos);
       }
 
       const result = await decodoScrape(url, "tiktok_post");

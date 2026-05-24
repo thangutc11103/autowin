@@ -1,6 +1,6 @@
 import type { Platform } from "./video";
 
-export type JobType = "hashtag" | "category" | "account" | "search";
+export type JobType = "hashtag" | "category" | "account" | "search" | "url";
 
 export interface CrawlJobData {
   id: string;
@@ -23,6 +23,7 @@ export interface DecomposeFilterRequest {
   filters: {
     danh_muc?: string[];
     search?: string[];
+    video_url?: string[];
     hashtag?: string[];
     ten_kenh_tai_khoan?: string[];
     limit?: number;
@@ -41,6 +42,7 @@ export interface JobSubmissionResult {
 export const FILTER_KEY_TO_JOB_TYPE: Record<string, JobType> = {
   danh_muc: "category",
   search: "search",
+  video_url: "url",
   hashtag: "hashtag",
   ten_kenh_tai_khoan: "account",
 };

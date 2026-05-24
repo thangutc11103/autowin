@@ -3,6 +3,7 @@ import type { Platform } from "./video";
 export interface PlatformFilterValues {
   danh_muc?: string[];
   search?: string[];
+  video_url?: string[];
   hashtag?: string[];
   ten_kenh_tai_khoan?: string[];
   limit?: number;

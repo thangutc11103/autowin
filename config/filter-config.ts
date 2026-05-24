@@ -54,6 +54,12 @@ export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
             type: "text",
           },
           {
+            key: "video_url",
+            label: "URL video",
+            placeholder: "https://www.tiktok.com/@user/video/123",
+            type: "text",
+          },
+          {
             key: "danh_muc",
             label: "Danh mục",
             placeholder: "sport, trending",

@@ -38,6 +38,14 @@ function normalizeInputValue(value: string): string {
         return segments[1].replace(/^#/, "");
       }
 
+      if (
+        segments[0].startsWith("@") &&
+        segments[1] === "video" &&
+        segments[2]
+      ) {
+        return `https://www.tiktok.com/${segments[0]}/video/${segments[2]}`;
+      }
+
       return segments[0].replace(/^@/, "");
     }
 
@@ -64,10 +72,40 @@ function normalizeInputValue(value: string): string {
     .replace(/\/+$/, "");
 }
 
+function normalizeTikTokVideoUrl(rawValue: string): string {
+  const trimmed = rawValue.trim();
+
+  try {
+    const parsed = new URL(trimmed);
+    const hostname = parsed.hostname.replace(/^www\./, "");
+    const segments = parsed.pathname.split("/").filter(Boolean);
+
+    if (
+      hostname === "tiktok.com" &&
+      segments[0]?.startsWith("@") &&
+      segments[1] === "video" &&
+      segments[2]
+    ) {
+      return `https://www.tiktok.com/${segments[0]}/video/${segments[2]}`;
+    }
+  } catch {
+    return "";
+  }
+
+  return "";
+}
+
 function buildTikTokTargetUrl(type: JobType, rawValue: string): string {
   const value = normalizeInputValue(rawValue);
 
   switch (type) {
+    case "url": {
+      const videoUrl = normalizeTikTokVideoUrl(rawValue);
+      if (!videoUrl) {
+        throw new Error("TikTok video URL must be a valid /@user/video/id link");
+      }
+      return videoUrl;
+    }
     case "category":
       return `https://www.tiktok.com/discover/${encodeURIComponent(value)}`;
     case "search":
@@ -213,7 +251,21 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        const targetUrl = buildTargetUrl(body.platform, type, rawItem);
+        let targetUrl = "";
+        try {
+          targetUrl = buildTargetUrl(body.platform, type, rawItem);
+        } catch (error) {
+          return Response.json(
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Invalid filter value",
+            },
+            { status: 400 },
+          );
+        }
+
         if (!targetUrl) {
           continue;
         }

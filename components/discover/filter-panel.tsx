@@ -66,6 +66,7 @@ const FILTER_COPY = {
         filterSection: 'Bộ lọc',
         fields: {
             search: 'Từ khóa tìm kiếm',
+            video_url: 'URL video',
             danh_muc: 'Danh mục',
             hashtag: 'Hashtag',
             ten_kenh_tai_khoan: 'Tài khoản/Kênh',
@@ -99,6 +100,7 @@ const FILTER_COPY = {
         filterSection: 'Filters',
         fields: {
             search: 'Search keyword',
+            video_url: 'Video URL',
             danh_muc: 'Category',
             hashtag: 'Hashtag',
             ten_kenh_tai_khoan: 'Account/Channel',
@@ -146,6 +148,7 @@ const VI_FILTER_COPY: typeof FILTER_COPY.en = {
     filterSection: 'Bộ lọc',
     fields: {
         search: 'Từ khóa tìm kiếm',
+        video_url: 'URL video',
         danh_muc: 'Danh mục',
         hashtag: 'Hashtag',
         ten_kenh_tai_khoan: 'Tài khoản/Kênh',
