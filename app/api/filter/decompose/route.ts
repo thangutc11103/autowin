@@ -30,6 +30,14 @@ function normalizeInputValue(value: string): string {
     }
 
     if (hostname === "tiktok.com" && segments[0]) {
+      if (segments[0] === "search") {
+        return parsed.searchParams.get("q")?.trim() || "";
+      }
+
+      if (segments[0] === "tag" && segments[1]) {
+        return segments[1].replace(/^#/, "");
+      }
+
       return segments[0].replace(/^@/, "");
     }
 
