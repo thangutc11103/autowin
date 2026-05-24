@@ -275,8 +275,10 @@ export class TikTokDecodoScraper {
 
       await page.waitForTimeout(3500);
 
-      const video = await page.evaluate((fallback) => {
-        const getMeta = (selector: string) =>
+      const payload = JSON.stringify(parsedVideo);
+      const video = (await page.evaluate(`(() => {
+        const fallback = ${payload};
+        const getMeta = (selector) =>
           document.querySelector(selector)?.getAttribute("content")?.trim() || "";
         const unavailableText = document.body.innerText || "";
 
@@ -296,14 +298,14 @@ export class TikTokDecodoScraper {
         const thumbnailUrl = getMeta("meta[property='og:image']") || null;
 
         return {
-          platform: "tiktok" as const,
+          platform: "tiktok",
           video_url: fallback.canonicalUrl,
           video_id: fallback.videoId,
           author: fallback.author,
           thumbnail_url: thumbnailUrl,
           title,
         };
-      }, parsedVideo);
+      })()`)) as TikTokListingVideo | null;
 
       await context.close();
 
