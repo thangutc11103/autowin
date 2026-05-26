@@ -26,6 +26,10 @@ function normalizeInputValue(value: string): string {
     }
 
     if (hostname === "facebook.com" && segments[0]) {
+      if (segments[0] === "profile.php") {
+        return parsed.searchParams.get("id")?.trim() || "";
+      }
+
       return segments[0].replace(/^@/, "");
     }
 
@@ -124,6 +128,10 @@ function buildFacebookTargetUrl(type: JobType, rawValue: string): string {
 
   switch (type) {
     case "account":
+      if (/^\d+$/.test(value)) {
+        return `https://www.facebook.com/profile.php?id=${encodeURIComponent(value)}&sk=reels_tab`;
+      }
+
       return `https://facebook.com/${encodeURIComponent(value)}/reels/`;
     default:
       throw new Error(`Unsupported Facebook job type: ${type}`);

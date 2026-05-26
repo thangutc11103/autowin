@@ -57,9 +57,25 @@ export class FacebookPlaywrightScraper {
 
     try {
       const parsed = new URL(url);
+      const profileId = parsed.searchParams.get("id");
+
+      if (parsed.pathname === "/profile.php" && profileId) {
+        const next = new URL(`${FACEBOOK_WEB_ORIGIN}/profile.php`);
+        next.searchParams.set("id", profileId);
+        next.searchParams.set("sk", "reels_tab");
+        return next.toString();
+      }
+
       const account = parsed.pathname.split("/").filter(Boolean)[0];
 
       if (account) {
+        if (/^\d+$/.test(account)) {
+          const next = new URL(`${FACEBOOK_WEB_ORIGIN}/profile.php`);
+          next.searchParams.set("id", account);
+          next.searchParams.set("sk", "reels_tab");
+          return next.toString();
+        }
+
         return `${FACEBOOK_WEB_ORIGIN}/${encodeURIComponent(account)}/reels/`;
       }
     } catch {
@@ -72,6 +88,12 @@ export class FacebookPlaywrightScraper {
   private extractSourceAuthor(sourceUrl: string): string | undefined {
     try {
       const parsed = new URL(sourceUrl);
+      const profileId = parsed.searchParams.get("id");
+
+      if (profileId) {
+        return profileId;
+      }
+
       return parsed.pathname.split("/").filter(Boolean)[0];
     } catch {
       return undefined;
@@ -151,6 +173,38 @@ export class FacebookPlaywrightScraper {
       const candidates = [];
       const seen = new Set();
 
+      const addCandidate = (reelId, sourceEl) => {
+        if (!reelId || seen.has(reelId)) {
+          return;
+        }
+
+        seen.add(reelId);
+        const root = sourceEl ? sourceEl.closest("a, [role='link'], div, article") : null;
+        const img =
+          (root ? root.querySelector("img[src], img[data-src]") : null) ||
+          (sourceEl ? sourceEl.querySelector("img[src], img[data-src]") : null);
+        const labelRoot = root && root.closest("[aria-label]");
+        const ariaLabel =
+          (root ? root.getAttribute("aria-label") : "") ||
+          (sourceEl ? sourceEl.getAttribute("aria-label") : "") ||
+          (labelRoot ? labelRoot.getAttribute("aria-label") : "") ||
+          "";
+        const text =
+          (root && root.textContent ? root.textContent.trim() : "") ||
+          (sourceEl && sourceEl.textContent ? sourceEl.textContent.trim() : "");
+        const title = ariaLabel.trim() || text || "Facebook reel";
+        const imageSrc = img ? (img.src || img.getAttribute("src") || img.getAttribute("data-src")) : null;
+
+        candidates.push({
+          reelId,
+          reelUrl: "https://facebook.com/reel/" + reelId,
+          detailUrl: payload.mobileOrigin + "/reel/" + reelId,
+          title,
+          thumbnail_url: normalizeImageUrl(imageSrc),
+          author: payload.author || undefined,
+        });
+      };
+
       const normalizeImageUrl = (rawUrl) => {
         if (!rawUrl || rawUrl.startsWith("data:")) {
           return null;
@@ -169,31 +223,23 @@ export class FacebookPlaywrightScraper {
 
       document.querySelectorAll("a[href]").forEach((link) => {
         const href = link.getAttribute("href") || "";
-        const match = href.match(/\\/reel\\/(\\d+)/);
-        const reelId = match && match[1];
+        const match = href.match(/\\/reel\\/(\\d+)/) || href.match(/[?&]v=(\\d+)/);
+        addCandidate(match && match[1], link);
+      });
 
-        if (!reelId || seen.has(reelId)) {
-          return;
+      const html = document.documentElement.innerHTML || "";
+      const patterns = [
+        /(?:https?:\\\\?\\/\\\\?\\/)?(?:www\\\\.)?facebook\\\\.com\\\\?\\/reel\\\\?\\/(\\d+)/g,
+        /\\\\?\\/reel\\\\?\\/(\\d+)/g,
+        /"video_id"\\s*:\\s*"(\\d+)"/g,
+        /"creation_story"[^]*?"id"\\s*:\\s*"(\\d+)"/g,
+      ];
+
+      patterns.forEach((pattern) => {
+        let match;
+        while ((match = pattern.exec(html)) && candidates.length < payload.limit) {
+          addCandidate(match[1], null);
         }
-
-        seen.add(reelId);
-        const img = link.querySelector("img");
-        const closestLabel = link.closest("[aria-label]");
-        const ariaLabel =
-          link.getAttribute("aria-label") ||
-          (closestLabel ? closestLabel.getAttribute("aria-label") : "") ||
-          "";
-        const title = ariaLabel.trim() || (link.textContent ? link.textContent.trim() : "") || "Facebook reel";
-        const imageSrc = img ? (img.src || img.getAttribute("src")) : null;
-
-        candidates.push({
-          reelId,
-          reelUrl: "https://facebook.com/reel/" + reelId,
-          detailUrl: payload.mobileOrigin + "/reel/" + reelId,
-          title,
-          thumbnail_url: normalizeImageUrl(imageSrc),
-          author: payload.author || undefined,
-        });
       });
 
       return candidates.slice(0, payload.limit);
