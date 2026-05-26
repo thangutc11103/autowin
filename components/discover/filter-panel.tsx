@@ -24,6 +24,9 @@ interface CleanupResponse {
 interface QueueInspectJob {
     id: string;
     state: string;
+    data?: {
+        limit?: number;
+    };
 }
 
 interface QueueInspectResponse {
@@ -33,6 +36,7 @@ interface QueueInspectResponse {
 
 interface VideosResponse {
     videos?: Video[];
+    total?: number;
     error?: string;
 }
 
@@ -231,6 +235,10 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
         text: string;
     } | null>(null);
     const [workerMessage, setWorkerMessage] = useState<string | null>(null);
+    const [crawlProgress, setCrawlProgress] = useState<{
+        found: number;
+        requested: number;
+    } | null>(null);
     const [instagramCookies, setInstagramCookies] = useState('');
     const [instagramCookieStatus, setInstagramCookieStatus] = useState<{
         type: 'idle' | 'checking' | 'valid' | 'error';
@@ -244,6 +252,7 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
         window.setTimeout(() => {
             setSubmitMessage(null);
             setWorkerMessage(null);
+            setCrawlProgress(null);
         }, 3000);
     };
 
@@ -363,8 +372,6 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
     };
 
     const reloadVideosForBatch = async (platform: Platform, batchId: string) => {
-        setLoading(true);
-
         const params = new URLSearchParams({
             batchId,
             platform,
@@ -378,15 +385,32 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
         }
 
         setVideos(videosData.videos || []);
+        return videosData.total ?? videosData.videos?.length ?? 0;
     };
 
-    const waitForBatchCompletion = async (platform: Platform, batchId: string) => {
+    const waitForBatchCompletion = async (
+        platform: Platform,
+        batchId: string,
+        requestedLimit: number,
+    ) => {
         setWorkerMessage(getMessage(language, 'queued'));
+        setCrawlProgress({
+            found: 0,
+            requested: requestedLimit,
+        });
 
         for (let attempt = 0; attempt < 60; attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 2000));
 
-            const inspectResponse = await fetch(`/api/filter/inspect?batchId=${encodeURIComponent(batchId)}`);
+            const foundCount = await reloadVideosForBatch(platform, batchId);
+            setCrawlProgress({
+                found: foundCount,
+                requested: requestedLimit,
+            });
+
+            const inspectResponse = await fetch(
+                `/api/filter/inspect?batchId=${encodeURIComponent(batchId)}&platform=${encodeURIComponent(platform)}`,
+            );
             const inspectData = (await inspectResponse.json()) as QueueInspectResponse;
 
             if (!inspectResponse.ok || inspectData.error) {
@@ -400,19 +424,31 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
             }
 
             if (states.some((state) => state === 'active')) {
-                setWorkerMessage(getMessage(language, 'finding'));
+                setWorkerMessage(
+                    language === 'vi'
+                        ? `Đã tìm thấy ${foundCount}/${requestedLimit} video. Worker đang tiếp tục tìm...`
+                        : `Found ${foundCount}/${requestedLimit} videos. Worker is still finding more...`,
+                );
                 continue;
             }
 
             if (states.some((state) => state === 'waiting' || state === 'delayed')) {
-                setWorkerMessage(getMessage(language, 'waiting'));
+                setWorkerMessage(
+                    language === 'vi'
+                        ? `Đã tìm thấy ${foundCount}/${requestedLimit} video. Đang chờ worker...`
+                        : `Found ${foundCount}/${requestedLimit} videos. Waiting for worker...`,
+                );
                 continue;
             }
 
             if (states.length > 0 && states.every((state) => state === 'completed')) {
                 setWorkerMessage(getMessage(language, 'completed'));
                 setCurrentBatchId(platform, batchId);
-                await reloadVideosForBatch(platform, batchId);
+                const finalCount = await reloadVideosForBatch(platform, batchId);
+                setCrawlProgress({
+                    found: finalCount,
+                    requested: requestedLimit,
+                });
                 setWorkerMessage(getMessage(language, 'updated'));
                 hideJobMessagesSoon();
                 return;
@@ -461,8 +497,14 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
                 ...prev,
                 [platform]: result.batchId,
             }));
+            setCurrentBatchId(platform, result.batchId);
+            setVideos([]);
 
-            await waitForBatchCompletion(platform, result.batchId);
+            const requestedLimit =
+                typeof processedFilters.limit === 'number'
+                    ? processedFilters.limit
+                    : 1;
+            await waitForBatchCompletion(platform, result.batchId, requestedLimit);
             clearTextInputsAfterSuccess(platform, processedFilters);
         } catch (error) {
             const errorText = error instanceof Error ? error.message : 'Unknown error';
@@ -471,6 +513,7 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
                 text: `Error: ${errorText}`,
             });
             setWorkerMessage(null);
+            setCrawlProgress(null);
         } finally {
             setLoading(false);
             setIsSubmitting(false);
@@ -574,6 +617,7 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
                 text: getMessage(language, 'cleared'),
             });
             setWorkerMessage(null);
+            setCrawlProgress(null);
             hideJobMessagesSoon();
         } catch (error) {
             setSubmitMessage({
@@ -623,6 +667,7 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
                 text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
             });
             setWorkerMessage(null);
+            setCrawlProgress(null);
         }
     };
 
@@ -647,6 +692,27 @@ export default function FilterPanel({ showHeader = true }: { showHeader?: boolea
             {workerMessage && (
                 <div className="mx-3 mt-3 rounded-xl border border-blue-400/30 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-200">
                     {workerMessage}
+                </div>
+            )}
+            {crawlProgress && (
+                <div className="mx-3 mt-3 rounded-xl border border-cyan-300/20 bg-slate-950/70 px-3 py-2">
+                    <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-200">
+                        <span>{language === 'vi' ? 'Video đã tìm được' : 'Videos found'}</span>
+                        <span className="text-cyan-200">
+                            {crawlProgress.found}/{crawlProgress.requested}
+                        </span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                        <div
+                            className="h-full rounded-full bg-gradient-to-r from-blue-500 via-cyan-400 to-violet-500 transition-all"
+                            style={{
+                                width: `${Math.min(
+                                    100,
+                                    Math.round((crawlProgress.found / Math.max(crawlProgress.requested, 1)) * 100),
+                                )}%`,
+                            }}
+                        />
+                    </div>
                 </div>
             )}
 

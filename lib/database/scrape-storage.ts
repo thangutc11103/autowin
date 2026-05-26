@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { Pool, type PoolClient } from "pg";
 import type { CrawlJobData } from "@/types/job";
-import type { ScrapeResult } from "@/types/scrape";
+import type { ScrapedVideo, ScrapeResult } from "@/types/scrape";
 import type { Platform, Video } from "@/types/video";
 import { ensureTenant } from "@/lib/database/tenant-storage";
 import { normalizeTenantId } from "@/lib/tenant-context";
@@ -351,6 +351,232 @@ export async function saveSuccessfulScrape(params: {
     jobId,
     savedVideos: params.result.videos.length,
   };
+}
+
+export async function startScrapeRun(params: {
+  jobData: CrawlJobData;
+  jobId?: string;
+}): Promise<string> {
+  await ensureScrapeStorage();
+
+  const tenantId = normalizeTenantId(params.jobData.tenantId);
+  await ensureTenant(tenantId);
+  const jobId = getJobId(params.jobData, params.jobId);
+
+  await withClient((client) =>
+    client.query(
+      `
+        INSERT INTO scrape_runs (
+          job_id,
+          tenant_id,
+          user_id,
+          batch_id,
+          platform,
+          job_type,
+          source_value,
+          target_url,
+          requested_limit,
+          total_count,
+          status,
+          error_message,
+          scraped_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 'running', NULL, NOW())
+        ON CONFLICT (job_id)
+        DO UPDATE SET
+          tenant_id = EXCLUDED.tenant_id,
+          user_id = EXCLUDED.user_id,
+          batch_id = EXCLUDED.batch_id,
+          platform = EXCLUDED.platform,
+          job_type = EXCLUDED.job_type,
+          source_value = EXCLUDED.source_value,
+          target_url = EXCLUDED.target_url,
+          requested_limit = EXCLUDED.requested_limit,
+          status = EXCLUDED.status,
+          error_message = NULL,
+          scraped_at = EXCLUDED.scraped_at
+      `,
+      [
+        jobId,
+        tenantId,
+        params.jobData.userId ?? null,
+        params.jobData.batchId ?? null,
+        params.jobData.platform,
+        params.jobData.type,
+        params.jobData.value,
+        params.jobData.targetUrl,
+        params.jobData.limit ?? null,
+      ],
+    ),
+  );
+
+  return jobId;
+}
+
+export async function upsertScrapedVideos(params: {
+  jobData: CrawlJobData;
+  jobId?: string;
+  videos: ScrapedVideo[];
+  scrapedAt?: string;
+}): Promise<{ jobId: string; savedVideos: number }> {
+  if (params.videos.length === 0) {
+    return {
+      jobId: getJobId(params.jobData, params.jobId),
+      savedVideos: 0,
+    };
+  }
+
+  await ensureScrapeStorage();
+
+  const tenantId = normalizeTenantId(params.jobData.tenantId);
+  await ensureTenant(tenantId);
+  const jobId = getJobId(params.jobData, params.jobId);
+  const scrapedAt = params.scrapedAt || new Date().toISOString();
+
+  await withClient(async (client) => {
+    const placeholders: string[] = [];
+    const values: Array<string | null | Record<string, unknown>> = [];
+
+    params.videos.forEach((video, index) => {
+      const offset = index * 13;
+      placeholders.push(
+        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12}, $${offset + 13})`,
+      );
+
+      values.push(
+        tenantId,
+        params.jobData.userId ?? null,
+        jobId,
+        params.jobData.batchId ?? null,
+        params.jobData.platform,
+        params.jobData.type,
+        params.jobData.value,
+        video.externalId,
+        video.title,
+        video.author ?? null,
+        video.url,
+        video.thumbnail ?? null,
+        {
+          crawledAt: video.crawledAt,
+          scrapedAt,
+          ...video.rawPayload,
+        },
+      );
+    });
+
+    await client.query(
+      `
+        INSERT INTO scraped_videos (
+          tenant_id,
+          user_id,
+          job_id,
+          batch_id,
+          platform,
+          job_type,
+          source_value,
+          video_id,
+          title,
+          author,
+          video_url,
+          thumbnail_url,
+          raw_payload,
+          crawled_at,
+          scraped_at
+        )
+        SELECT
+          entry.tenant_id,
+          entry.user_id,
+          entry.job_id,
+          entry.batch_id,
+          entry.platform,
+          entry.job_type,
+          entry.source_value,
+          entry.video_id,
+          entry.title,
+          entry.author,
+          entry.video_url,
+          entry.thumbnail_url,
+          entry.raw_payload::JSONB,
+          (entry.raw_payload::JSONB->>'crawledAt')::TIMESTAMPTZ,
+          (entry.raw_payload::JSONB->>'scrapedAt')::TIMESTAMPTZ
+        FROM (
+          VALUES ${placeholders.join(", ")}
+        ) AS entry (
+          tenant_id,
+          user_id,
+          job_id,
+          batch_id,
+          platform,
+          job_type,
+          source_value,
+          video_id,
+          title,
+          author,
+          video_url,
+          thumbnail_url,
+          raw_payload
+        )
+        ON CONFLICT (job_id, video_url)
+        DO UPDATE SET
+          tenant_id = EXCLUDED.tenant_id,
+          user_id = EXCLUDED.user_id,
+          batch_id = EXCLUDED.batch_id,
+          platform = EXCLUDED.platform,
+          job_type = EXCLUDED.job_type,
+          source_value = EXCLUDED.source_value,
+          video_id = EXCLUDED.video_id,
+          title = EXCLUDED.title,
+          author = EXCLUDED.author,
+          thumbnail_url = EXCLUDED.thumbnail_url,
+          raw_payload = EXCLUDED.raw_payload,
+          crawled_at = EXCLUDED.crawled_at,
+          scraped_at = EXCLUDED.scraped_at
+      `,
+      values,
+    );
+  });
+
+  return {
+    jobId,
+    savedVideos: params.videos.length,
+  };
+}
+
+export async function finalizeScrapeRun(params: {
+  jobData: CrawlJobData;
+  jobId?: string;
+  totalCount: number;
+  status?: "completed" | "failed";
+  errorMessage?: string | null;
+}): Promise<string> {
+  await ensureScrapeStorage();
+
+  const tenantId = normalizeTenantId(params.jobData.tenantId);
+  await ensureTenant(tenantId);
+  const jobId = getJobId(params.jobData, params.jobId);
+
+  await withClient((client) =>
+    client.query(
+      `
+        UPDATE scrape_runs
+        SET
+          total_count = $3,
+          status = $4,
+          error_message = $5,
+          scraped_at = NOW()
+        WHERE job_id = $1 AND tenant_id = $2
+      `,
+      [
+        jobId,
+        tenantId,
+        params.totalCount,
+        params.status || "completed",
+        params.errorMessage ?? null,
+      ],
+    ),
+  );
+
+  return jobId;
 }
 
 export async function saveFailedScrape(params: {

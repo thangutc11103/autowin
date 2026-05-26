@@ -1,6 +1,10 @@
 import { chromium, devices, type Browser, type Page, type Response } from "playwright";
 import type { JobType } from "@/types/job";
-import type { ScraperCrawlResult, ScraperVideo } from "./scraper-factory";
+import type {
+  ScraperCrawlOptions,
+  ScraperCrawlResult,
+  ScraperVideo,
+} from "./scraper-factory";
 
 const FACEBOOK_WEB_ORIGIN = "https://facebook.com";
 const FACEBOOK_MOBILE_ORIGIN = "https://m.facebook.com";
@@ -28,6 +32,15 @@ interface FacebookDetailResult {
 interface FacebookVideoResponse {
   url: string;
   contentLength: number;
+}
+
+function getFacebookScrollPlan(limit: number) {
+  const tier = Math.min(Math.max(Math.ceil(limit / 10), 1), 5);
+
+  return {
+    maxScrolls: tier * 2,
+    waitMs: (tier + 1) * 1000,
+  };
 }
 
 export class FacebookPlaywrightScraper {
@@ -246,6 +259,55 @@ export class FacebookPlaywrightScraper {
     })()`)) as FacebookReelCandidate[];
   }
 
+  private async extractReelCandidatesWithScroll(
+    page: Page,
+    listingUrl: string,
+    limit: number,
+  ): Promise<FacebookReelCandidate[]> {
+    const { maxScrolls, waitMs } = getFacebookScrollPlan(limit);
+    let candidates = await this.extractReelCandidates(page, listingUrl, limit);
+    let unchangedScrolls = 0;
+
+    console.log(
+      `  [Listing] Found ${candidates.length}/${limit} candidates before scroll`,
+    );
+
+    for (let scroll = 1; scroll <= maxScrolls && candidates.length < limit; scroll += 1) {
+      const previousCount = candidates.length;
+
+      await page.evaluate(`(() => {
+        window.scrollBy(0, Math.max(document.documentElement.clientHeight, window.innerHeight || 0) * 0.9);
+      })()`);
+      await page.mouse.wheel(0, 1400).catch(() => undefined);
+      await page.waitForTimeout(waitMs);
+
+      candidates = await this.extractReelCandidates(page, listingUrl, limit);
+
+      console.log(
+        `  [Listing] Found ${candidates.length}/${limit} candidates after scroll ${scroll}/${maxScrolls}`,
+      );
+
+      if (candidates.length <= previousCount) {
+        unchangedScrolls += 1;
+      } else {
+        unchangedScrolls = 0;
+      }
+
+      if (unchangedScrolls >= 2) {
+        console.log("  [Listing] Stop scrolling: no new candidates after 2 scrolls");
+        break;
+      }
+    }
+
+    if (candidates.length < limit) {
+      console.log(
+        `  [Listing] Only found ${candidates.length}/${limit} candidates after max scrolls`,
+      );
+    }
+
+    return candidates;
+  }
+
   private async extractDetailVideo(
     page: Page,
     candidate: FacebookReelCandidate,
@@ -364,6 +426,7 @@ export class FacebookPlaywrightScraper {
     url: string,
     type: JobType,
     limit = 30,
+    options?: ScraperCrawlOptions,
   ): Promise<ScraperCrawlResult> {
     const requestedLimit = Number.isFinite(limit) && limit > 0 ? limit : 30;
     const listingUrl = this.getListingUrl(url, type);
@@ -393,7 +456,7 @@ export class FacebookPlaywrightScraper {
       });
       await page.waitForTimeout(3500);
 
-      const candidates = await this.extractReelCandidates(
+      const candidates = await this.extractReelCandidatesWithScroll(
         page,
         listingUrl,
         requestedLimit,
@@ -416,6 +479,7 @@ export class FacebookPlaywrightScraper {
         const video = await this.extractDetailVideo(detailPage, candidate);
         if (video) {
           videos.push(video);
+          await options?.onVideo?.(video);
         }
       }
 

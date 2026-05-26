@@ -21,6 +21,7 @@ export interface ScraperStrategy {
 
 export interface ScraperCrawlOptions {
   authCookies?: string;
+  onVideo?: (video: ScraperVideo) => Promise<void> | void;
 }
 
 export interface ScraperVideo {
@@ -132,9 +133,10 @@ class FacebookScraper implements ScraperStrategy {
     url: string,
     type: JobType,
     limit?: number,
+    options?: ScraperCrawlOptions,
   ): Promise<ScraperCrawlResult> {
     console.log(`[Facebook] Crawling ${type}: ${url}`);
-    return this.playwrightScraper.crawlUrl(url, type, limit);
+    return this.playwrightScraper.crawlUrl(url, type, limit, options);
   }
 }
 

@@ -16,10 +16,17 @@ import {
   SCRAPE_QUEUE_NAME,
   type PublishJobData,
 } from "@/lib/queue";
-import { ScraperFactory } from "@/lib/scrapers/scraper-factory";
 import {
+  ScraperFactory,
+  type ScraperVideo,
+} from "@/lib/scrapers/scraper-factory";
+import {
+  finalizeScrapeRun,
+  saveFailedScrape,
   saveSuccessfulScrape,
+  startScrapeRun,
   updateScrapedVideoMediaByJobUrl,
+  upsertScrapedVideos,
 } from "@/lib/database/scrape-storage";
 import {
   getPublishTargetContext,
@@ -78,6 +85,22 @@ function getScrapeTimeoutMs(platform: string): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function mapScraperVideoToScrapedVideo(
+  video: ScraperVideo,
+  platform: CrawlJobData["platform"],
+): ScrapedVideo {
+  return {
+    externalId: video.video_id || `${platform}_${video.title}`,
+    title: video.title || "Untitled",
+    url: video.video_url,
+    platform,
+    author: video.author || undefined,
+    thumbnail: video.thumbnail_url || undefined,
+    crawledAt: new Date().toISOString(),
+    rawPayload: video.rawPayload || {},
+  };
 }
 
 function isUnrecoverablePublishError(error: unknown): boolean {
@@ -185,6 +208,10 @@ function setupWorker() {
 
         // 25% - Validation & Setup
         await job.updateProgress(25);
+        await startScrapeRun({
+          jobData: job.data,
+          jobId: job.id,
+        });
         console.log(`[JOB ${job.id}] ✓ Setup complete`);
 
         // 50% - Get Scraper Strategy
@@ -199,9 +226,30 @@ function setupWorker() {
         console.log(`[JOB ${job.id}] ⧖ Crawling...`);
 
         const scrapeTimeoutMs = getScrapeTimeoutMs(platform);
+        let incrementalSavedCount = 0;
         const scrapeResult = await withTimeout(
           scraper.crawl(targetUrl, type, limit, {
             authCookies: job.data.authCookies,
+            onVideo:
+              platform === "facebook"
+                ? async (video) => {
+                    const mappedVideo = mapScraperVideoToScrapedVideo(
+                      video,
+                      platform,
+                    );
+
+                    await upsertScrapedVideos({
+                      jobData: job.data,
+                      jobId: job.id,
+                      videos: [mappedVideo],
+                    });
+
+                    incrementalSavedCount += 1;
+                    console.log(
+                      `[JOB ${job.id}] Saved incremental Facebook video ${incrementalSavedCount}/${limit}: ${mappedVideo.url}`,
+                    );
+                  }
+                : undefined,
           }),
           scrapeTimeoutMs,
           `Scrape timed out after ${Math.round(scrapeTimeoutMs / 60000)} minutes for ${platform}`,
@@ -237,7 +285,17 @@ function setupWorker() {
         let dbResult = null;
         let savedCount = 0;
 
-        if (videosFound > 0) {
+        if (platform === "facebook") {
+          await finalizeScrapeRun({
+            jobData: job.data,
+            jobId: job.id,
+            totalCount: videosFound,
+          });
+          savedCount = incrementalSavedCount;
+          console.log(
+            `[JOB ${job.id}] Facebook incremental save finalized with ${savedCount} videos`,
+          );
+        } else if (videosFound > 0) {
           try {
             console.log(
               `[JOB ${job.id}] 🔄 Mapping videos to database format...`,
@@ -250,19 +308,9 @@ function setupWorker() {
               `[JOB ${job.id}] Converting ${videosArray.length} videos...`,
             );
 
-            const mappedVideos: ScrapedVideo[] = videosArray.map((video) => {
-              const mapped = {
-                externalId: video.video_id || `${platform}_${video.title}`,
-                title: video.title || "Untitled",
-                url: video.video_url,
-                platform,
-                author: video.author || undefined,
-                thumbnail: video.thumbnail_url || undefined,
-                crawledAt: new Date().toISOString(),
-                rawPayload: video.rawPayload || {},
-              };
-              return mapped;
-            });
+            const mappedVideos: ScrapedVideo[] = videosArray.map((video) =>
+              mapScraperVideoToScrapedVideo(video, platform),
+            );
 
             console.log(
               `[JOB ${job.id}] ✓ Mapped ${mappedVideos.length} videos`,
@@ -325,6 +373,11 @@ function setupWorker() {
           }
         } else {
           console.log(`[JOB ${job.id}] ⚠️ No videos found to save`);
+          await finalizeScrapeRun({
+            jobData: job.data,
+            jobId: job.id,
+            totalCount: 0,
+          });
         }
 
         // 100% - Return result
@@ -350,6 +403,15 @@ function setupWorker() {
         return output;
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
+        await saveFailedScrape({
+          jobData: job.data,
+          jobId: job.id,
+          errorMessage: errorMsg,
+        }).catch((saveError) => {
+          const saveMsg =
+            saveError instanceof Error ? saveError.message : String(saveError);
+          console.error(`[JOB ${job.id}] Failed to save scrape error: ${saveMsg}`);
+        });
         console.error(`[JOB ${job.id}] ❌ ERROR: ${errorMsg}`);
         console.error(error);
         console.log(`${"=".repeat(60)}\n`);
