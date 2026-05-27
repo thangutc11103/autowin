@@ -26,6 +26,15 @@ function normalizeInputValue(value: string): string {
     }
 
     if (hostname === "facebook.com" && segments[0]) {
+      if (segments[0] === "reel" && segments[1]) {
+        return `https://www.facebook.com/reel/${segments[1]}`;
+      }
+
+      if (segments[0] === "watch") {
+        const videoId = parsed.searchParams.get("v")?.trim();
+        return videoId ? `https://www.facebook.com/watch?v=${videoId}` : "";
+      }
+
       if (segments[0] === "profile.php") {
         return parsed.searchParams.get("id")?.trim() || "";
       }
@@ -99,6 +108,35 @@ function normalizeTikTokVideoUrl(rawValue: string): string {
   return "";
 }
 
+function normalizeFacebookVideoUrl(rawValue: string): string {
+  const trimmed = rawValue.trim();
+
+  try {
+    const parsed = new URL(trimmed);
+    const hostname = parsed.hostname.replace(/^www\./, "");
+    const segments = parsed.pathname.split("/").filter(Boolean);
+
+    if (hostname !== "facebook.com" && hostname !== "fb.watch") {
+      return "";
+    }
+
+    if (hostname === "facebook.com" && segments[0] === "reel" && segments[1]) {
+      return `https://www.facebook.com/reel/${encodeURIComponent(segments[1])}`;
+    }
+
+    if (hostname === "facebook.com" && segments[0] === "watch") {
+      const videoId = parsed.searchParams.get("v")?.trim();
+      return videoId
+        ? `https://www.facebook.com/watch?v=${encodeURIComponent(videoId)}`
+        : "";
+    }
+  } catch {
+    return "";
+  }
+
+  return "";
+}
+
 function buildTikTokTargetUrl(type: JobType, rawValue: string): string {
   const value = normalizeInputValue(rawValue);
 
@@ -127,6 +165,13 @@ function buildFacebookTargetUrl(type: JobType, rawValue: string): string {
   const value = normalizeInputValue(rawValue);
 
   switch (type) {
+    case "url": {
+      const videoUrl = normalizeFacebookVideoUrl(rawValue);
+      if (!videoUrl) {
+        throw new Error("Facebook video URL must be a valid /reel/id or /watch?v=id link");
+      }
+      return videoUrl;
+    }
     case "account":
       if (/^\d+$/.test(value)) {
         return `https://www.facebook.com/profile.php?id=${encodeURIComponent(value)}&sk=reels_tab`;
@@ -167,7 +212,7 @@ function buildTargetUrl(
   }
 
   if (platform === "facebook") {
-    return type === "account"
+    return type === "account" || type === "url"
       ? buildFacebookTargetUrl(type, normalizedValue)
       : "";
   }

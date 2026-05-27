@@ -117,6 +117,47 @@ export class FacebookPlaywrightScraper {
     return `${FACEBOOK_MOBILE_ORIGIN}/reel/${encodeURIComponent(reelId)}`;
   }
 
+  private getDirectVideoCandidate(url: string): FacebookReelCandidate | null {
+    try {
+      const parsed = new URL(url);
+      const hostname = parsed.hostname.replace(/^www\./, "");
+      const segments = parsed.pathname.split("/").filter(Boolean);
+
+      if (hostname !== "facebook.com") {
+        return null;
+      }
+
+      if (segments[0] === "reel" && segments[1]) {
+        const reelId = segments[1];
+        return {
+          reelId,
+          reelUrl: `${FACEBOOK_WEB_ORIGIN}/reel/${encodeURIComponent(reelId)}`,
+          detailUrl: this.buildMobileReelUrl(reelId),
+          title: "Facebook reel",
+          thumbnail_url: null,
+        };
+      }
+
+      if (segments[0] === "watch") {
+        const videoId = parsed.searchParams.get("v")?.trim();
+
+        if (videoId) {
+          return {
+            reelId: videoId,
+            reelUrl: `${FACEBOOK_WEB_ORIGIN}/watch?v=${encodeURIComponent(videoId)}`,
+            detailUrl: `${FACEBOOK_MOBILE_ORIGIN}/watch?v=${encodeURIComponent(videoId)}`,
+            title: "Facebook video",
+            thumbnail_url: null,
+          };
+        }
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
+
   private normalizeMediaUrl(rawUrl: string | null | undefined): string | null {
     if (!rawUrl) {
       return null;
@@ -450,18 +491,36 @@ export class FacebookPlaywrightScraper {
       const page = await context.newPage();
       await this.preparePage(page);
 
-      await page.goto(listingUrl, {
-        waitUntil: "domcontentloaded",
-        timeout: 45000,
-      });
-      await page.waitForTimeout(3500);
+      const candidates =
+        type === "url"
+          ? [this.getDirectVideoCandidate(listingUrl)].filter(
+              (candidate): candidate is FacebookReelCandidate => Boolean(candidate),
+            )
+          : await (async () => {
+              await page.goto(listingUrl, {
+                waitUntil: "domcontentloaded",
+                timeout: 45000,
+              });
+              await page.waitForTimeout(3500);
 
-      const candidates = await this.extractReelCandidatesWithScroll(
-        page,
-        listingUrl,
-        requestedLimit,
-      );
+              return this.extractReelCandidatesWithScroll(
+                page,
+                listingUrl,
+                requestedLimit,
+              );
+            })();
       console.log(`  [Listing] Found ${candidates.length} reel candidates`);
+
+      if (type === "url" && candidates.length === 0) {
+        return {
+          platform: "facebook",
+          type,
+          url: listingUrl,
+          count: 0,
+          data: [],
+          error: "Facebook video URL must be a valid /reel/id or /watch?v=id link",
+        };
+      }
 
       const videos: FacebookListingVideo[] = [];
       const detailContext = await browser.newContext({
@@ -481,6 +540,17 @@ export class FacebookPlaywrightScraper {
           videos.push(video);
           await options?.onVideo?.(video);
         }
+      }
+
+      if (type === "url" && videos.length === 0) {
+        return {
+          platform: "facebook",
+          type,
+          url: listingUrl,
+          count: 0,
+          data: [],
+          error: "Facebook video could not be loaded or does not expose a playable video",
+        };
       }
 
       await detailContext.close();

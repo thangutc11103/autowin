@@ -86,6 +86,12 @@ export const PLATFORM_FILTER_CONFIGS: PlatformFilterConfig[] = [
         label: "Bộ lọc",
         fields: [
           {
+            key: "video_url",
+            label: "URL video",
+            placeholder: "https://www.facebook.com/reel/123",
+            type: "text",
+          },
+          {
             ...accountField,
             placeholder: "metavietnam, vtv24",
           },
