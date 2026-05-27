@@ -271,6 +271,8 @@ const OAUTH_PLATFORM_LABELS: Record<OAuthPlatform, string> = {
     meta: 'Meta',
 };
 
+const READY_VIDEOS_PER_PAGE = 7;
+
 function getAccountLabel(account: PublishingAccount) {
     return (
         account.label?.trim() ||
@@ -294,20 +296,6 @@ function splitScopes(scope?: string) {
     return scope ? scope.split(/[,\s]+/).filter(Boolean) : [];
 }
 
-function getPreviewVideoUrl(video: Video | null) {
-    if (!video) {
-        return "";
-    }
-
-    return (
-        video.preparedLocalUrl ||
-        video.mediaVideoUrl ||
-        (typeof video.rawPayload?.publicUrl === 'string' ? video.rawPayload.publicUrl : '') ||
-        video.url ||
-        ""
-    );
-}
-
 function VideoPickList({
     videos,
     selectedId,
@@ -320,6 +308,23 @@ function VideoPickList({
     onSelect: (id: string) => void;
 }) {
     const text = COPY[language];
+    const listKey = videos.map((video) => video.id).join(':') || 'empty';
+    const [paginationState, setPaginationState] = useState({
+        key: listKey,
+        page: 1,
+    });
+    const currentPage = paginationState.key === listKey ? paginationState.page : 1;
+    const totalPages = Math.max(1, Math.ceil(videos.length / READY_VIDEOS_PER_PAGE));
+    const safeCurrentPage = Math.min(currentPage, totalPages);
+    const startIndex = (safeCurrentPage - 1) * READY_VIDEOS_PER_PAGE;
+    const endIndex = Math.min(startIndex + READY_VIDEOS_PER_PAGE, videos.length);
+    const pageVideos = videos.slice(startIndex, endIndex);
+    const changePage = (page: number) => {
+        setPaginationState({
+            key: listKey,
+            page: Math.max(1, Math.min(page, totalPages)),
+        });
+    };
 
     if (videos.length === 0) {
         return (
@@ -334,7 +339,7 @@ function VideoPickList({
 
     return (
         <div className="grid gap-2">
-            {videos.slice(0, 5).map((video) => {
+            {pageVideos.map((video) => {
                 const active = selectedId === video.id;
 
                 return (
@@ -377,6 +382,36 @@ function VideoPickList({
                     </button>
                 );
             })}
+            {totalPages > 1 && (
+                <div className="mt-2 flex flex-col gap-2 rounded-lg border border-cyan-300/10 bg-slate-950/60 px-3 py-2 text-xs text-slate-200 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="font-semibold">
+                        {language === 'vi'
+                            ? `Hiển thị ${startIndex + 1}-${endIndex} / ${videos.length} video`
+                            : `Showing ${startIndex + 1}-${endIndex} of ${videos.length} videos`}
+                    </span>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => changePage(safeCurrentPage - 1)}
+                            disabled={safeCurrentPage <= 1}
+                            className="rounded-lg border border-cyan-300/15 bg-slate-950/70 px-2.5 py-1.5 font-bold text-slate-100 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                            {language === 'vi' ? 'Trước' : 'Prev'}
+                        </button>
+                        <span className="min-w-16 text-center font-bold text-cyan-200">
+                            {safeCurrentPage}/{totalPages}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => changePage(safeCurrentPage + 1)}
+                            disabled={safeCurrentPage >= totalPages}
+                            className="rounded-lg border border-cyan-300/15 bg-slate-950/70 px-2.5 py-1.5 font-bold text-slate-100 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                            {language === 'vi' ? 'Sau' : 'Next'}
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -414,7 +449,6 @@ export default function AutomationPage() {
         () => postingVideos.find((video) => video.id === selectedVideoId) || postingVideos[0] || null,
         [postingVideos, selectedVideoId],
     );
-    const previewVideoUrl = getPreviewVideoUrl(selectedVideo);
     const selectedVideoItem = useMemo(
         () =>
             readyItems.find((item) => item.video.id === selectedVideo?.id) ||
@@ -809,16 +843,15 @@ export default function AutomationPage() {
                                 <div>
                                     <h3 className="text-sm font-bold text-gray-950">{text.preview}</h3>
                                     <div className="mt-2 overflow-hidden rounded-lg border border-gray-100 bg-gray-950">
-                                        <div className="relative aspect-[9/16] w-full bg-black">
-                                            {previewVideoUrl ? (
-                                                <video
-                                                    key={previewVideoUrl}
-                                                    src={previewVideoUrl}
-                                                    poster={selectedVideo?.thumbnail || undefined}
-                                                    controls
-                                                    playsInline
-                                                    preload="metadata"
-                                                    className="size-full object-cover"
+                                        <div className="relative aspect-[9/16] w-full bg-gray-900">
+                                            {selectedVideo?.thumbnail ? (
+                                                <Image
+                                                    src={selectedVideo.thumbnail}
+                                                    alt={selectedVideo.title}
+                                                    fill
+                                                    unoptimized
+                                                    sizes="220px"
+                                                    className="object-cover"
                                                 />
                                             ) : (
                                                 <div className="flex size-full items-center justify-center text-sm font-semibold text-gray-500">
