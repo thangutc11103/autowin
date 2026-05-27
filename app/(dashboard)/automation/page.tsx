@@ -294,6 +294,20 @@ function splitScopes(scope?: string) {
     return scope ? scope.split(/[,\s]+/).filter(Boolean) : [];
 }
 
+function getPreviewVideoUrl(video: Video | null) {
+    if (!video) {
+        return "";
+    }
+
+    return (
+        video.preparedLocalUrl ||
+        video.mediaVideoUrl ||
+        (typeof video.rawPayload?.publicUrl === 'string' ? video.rawPayload.publicUrl : '') ||
+        video.url ||
+        ""
+    );
+}
+
 function VideoPickList({
     videos,
     selectedId,
@@ -381,7 +395,10 @@ export default function AutomationPage() {
     const [publishWindow, setPublishWindow] = useState<PublishWindow>('schedule');
     const [scheduleDate, setScheduleDate] = useState('');
     const [scheduleTime, setScheduleTime] = useState('');
-    const [caption, setCaption] = useState(COPY[language].defaultCaption);
+    const [captionDraft, setCaptionDraft] = useState({
+        value: '',
+        edited: false,
+    });
     const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
     const [queueMessage, setQueueMessage] = useState<string | null>(null);
     const [isQueueing, setIsQueueing] = useState(false);
@@ -391,11 +408,13 @@ export default function AutomationPage() {
         api: true,
     });
     const text = COPY[language];
+    const caption = captionDraft.value;
 
     const selectedVideo = useMemo(
         () => postingVideos.find((video) => video.id === selectedVideoId) || postingVideos[0] || null,
         [postingVideos, selectedVideoId],
     );
+    const previewVideoUrl = getPreviewVideoUrl(selectedVideo);
     const selectedVideoItem = useMemo(
         () =>
             readyItems.find((item) => item.video.id === selectedVideo?.id) ||
@@ -403,6 +422,20 @@ export default function AutomationPage() {
             null,
         [readyItems, selectedVideo],
     );
+    const selectVideoForDraft = useCallback((videoId: string) => {
+        setSelectedVideoId(videoId);
+        setCaptionDraft((current) => {
+            if (current.edited) {
+                return current;
+            }
+
+            const video = postingVideos.find((item) => item.id === videoId);
+            return {
+                value: video?.title || '',
+                edited: false,
+            };
+        });
+    }, [postingVideos]);
     const publishingTargets = useMemo<PublishingTarget[]>(() => {
         const accountTargets = publishingAccounts
             .filter((account) => account.platform === 'tiktok' || account.platform === 'youtube')
@@ -487,6 +520,16 @@ export default function AutomationPage() {
                         }
 
                         return items[0]?.video.id || null;
+                    });
+                    setCaptionDraft((current) => {
+                        if (current.edited || current.value.trim()) {
+                            return current;
+                        }
+
+                        return {
+                            value: items[0]?.video.title || '',
+                            edited: false,
+                        };
                     });
                 }
             } catch (error) {
@@ -694,7 +737,7 @@ export default function AutomationPage() {
                                 videos={postingVideos}
                                 selectedId={selectedVideo?.id || null}
                                 language={language}
-                                onSelect={setSelectedVideoId}
+                                onSelect={selectVideoForDraft}
                             />
                         </section>
 
@@ -707,7 +750,12 @@ export default function AutomationPage() {
                                     <textarea
                                         id="caption"
                                         value={caption}
-                                        onChange={(event) => setCaption(event.target.value)}
+                                        onChange={(event) =>
+                                            setCaptionDraft({
+                                                value: event.target.value,
+                                                edited: true,
+                                            })
+                                        }
                                         className="mt-2 min-h-48 w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-3 text-sm leading-6 text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                                         maxLength={2200}
                                     />
@@ -761,15 +809,16 @@ export default function AutomationPage() {
                                 <div>
                                     <h3 className="text-sm font-bold text-gray-950">{text.preview}</h3>
                                     <div className="mt-2 overflow-hidden rounded-lg border border-gray-100 bg-gray-950">
-                                        <div className="relative aspect-[9/16] w-full bg-gray-900">
-                                            {selectedVideo?.thumbnail ? (
-                                                <Image
-                                                    src={selectedVideo.thumbnail}
-                                                    alt={selectedVideo.title}
-                                                    fill
-                                                    unoptimized
-                                                    sizes="220px"
-                                                    className="object-cover"
+                                        <div className="relative aspect-[9/16] w-full bg-black">
+                                            {previewVideoUrl ? (
+                                                <video
+                                                    key={previewVideoUrl}
+                                                    src={previewVideoUrl}
+                                                    poster={selectedVideo?.thumbnail || undefined}
+                                                    controls
+                                                    playsInline
+                                                    preload="metadata"
+                                                    className="size-full object-cover"
                                                 />
                                             ) : (
                                                 <div className="flex size-full items-center justify-center text-sm font-semibold text-gray-500">

@@ -35,6 +35,7 @@ const SELECT_BUTTON_SELECTED =
     'border-blue-300/30 bg-gradient-to-r from-blue-600 to-violet-600 text-white shadow-[0_0_22px_rgba(59,130,246,0.35)] hover:from-blue-500 hover:to-violet-500';
 const SELECT_BUTTON_IDLE =
     'border-violet-400/35 bg-slate-950/45 text-slate-100 hover:border-cyan-300/45 hover:bg-blue-500/10 hover:text-cyan-100';
+const VIDEOS_PER_PAGE = 7;
 
 interface VideosResponse {
     videos?: Video[];
@@ -311,6 +312,61 @@ function VideoGrid({
     );
 }
 
+function PaginationControls({
+    currentPage,
+    totalPages,
+    totalVideos,
+    startIndex,
+    endIndex,
+    language,
+    onPageChange,
+}: {
+    currentPage: number;
+    totalPages: number;
+    totalVideos: number;
+    startIndex: number;
+    endIndex: number;
+    language: 'vi' | 'en';
+    onPageChange: (page: number) => void;
+}) {
+    if (totalPages <= 1) {
+        return null;
+    }
+
+    return (
+        <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-cyan-300/10 bg-slate-950/55 px-4 py-3 text-sm text-slate-200 shadow-[0_20px_45px_rgba(0,0,0,0.22)] backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+            <div className="font-semibold">
+                {language === 'vi'
+                    ? `Hiển thị ${startIndex + 1}-${endIndex} / ${totalVideos} video`
+                    : `Showing ${startIndex + 1}-${endIndex} of ${totalVideos} videos`}
+            </div>
+            <div className="flex items-center gap-2">
+                <button
+                    type="button"
+                    onClick={() => onPageChange(currentPage - 1)}
+                    disabled={currentPage <= 1}
+                    className="rounded-xl border border-cyan-300/15 bg-slate-950/70 px-3 py-2 text-xs font-bold text-slate-100 transition hover:border-cyan-300/35 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                    {language === 'vi' ? 'Trước' : 'Prev'}
+                </button>
+                <span className="min-w-24 text-center text-xs font-bold text-cyan-200">
+                    {language === 'vi'
+                        ? `Trang ${currentPage}/${totalPages}`
+                        : `Page ${currentPage}/${totalPages}`}
+                </span>
+                <button
+                    type="button"
+                    onClick={() => onPageChange(currentPage + 1)}
+                    disabled={currentPage >= totalPages}
+                    className="rounded-xl border border-cyan-300/15 bg-slate-950/70 px-3 py-2 text-xs font-bold text-slate-100 transition hover:border-cyan-300/35 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                    {language === 'vi' ? 'Sau' : 'Next'}
+                </button>
+            </div>
+        </div>
+    );
+}
+
 export default function DiscoverPage() {
     const language = useLanguageStore((state) => state.language);
     const activePlatform = useFilterStore((state) => state.activePlatform);
@@ -325,6 +381,13 @@ export default function DiscoverPage() {
     const [isFilterOpen, setIsFilterOpen] = useState(false);
     const [selectedItems, setSelectedItems] = useState<UserVideoItem[]>([]);
     const currentBatchId = currentBatchByPlatform[activePlatform];
+    const pageKey = `${activePlatform}:${currentBatchId || 'latest'}`;
+    const [paginationState, setPaginationState] = useState({
+        key: pageKey,
+        page: 1,
+    });
+    const currentPage =
+        paginationState.key === pageKey ? paginationState.page : 1;
     const selectedItemBySourceId = useMemo(() => {
         const map = new Map<string, UserVideoItem>();
         selectedItems.forEach((item) => {
@@ -344,6 +407,22 @@ export default function DiscoverPage() {
             document.body.style.overflow = '';
         };
     }, [isFilterOpen]);
+
+    const totalPages = Math.max(1, Math.ceil(videos.length / VIDEOS_PER_PAGE));
+    const safeCurrentPage = Math.min(currentPage, totalPages);
+    const pageStartIndex = (safeCurrentPage - 1) * VIDEOS_PER_PAGE;
+    const pageEndIndex = Math.min(pageStartIndex + VIDEOS_PER_PAGE, videos.length);
+    const paginatedVideos = useMemo(
+        () => videos.slice(pageStartIndex, pageEndIndex),
+        [pageEndIndex, pageStartIndex, videos],
+    );
+
+    const handlePageChange = useCallback((page: number) => {
+        setPaginationState({
+            key: pageKey,
+            page: Math.max(1, Math.min(page, totalPages)),
+        });
+    }, [pageKey, totalPages]);
 
     const loadVideos = useCallback(async (signal?: AbortSignal) => {
         setLoading(true);
@@ -516,11 +595,22 @@ export default function DiscoverPage() {
 
                 <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
                     <VideoGrid
-                        videos={videos}
+                        videos={paginatedVideos}
                         isLoading={isLoading}
                         selectedSourceIds={selectedSourceIds}
                         onToggleSelect={toggleSelected}
                     />
+                    {!isLoading && videos.length > 0 && (
+                        <PaginationControls
+                            currentPage={safeCurrentPage}
+                            totalPages={totalPages}
+                            totalVideos={videos.length}
+                            startIndex={pageStartIndex}
+                            endIndex={pageEndIndex}
+                            language={language}
+                            onPageChange={handlePageChange}
+                        />
+                    )}
                 </div>
             </div>
         </div>
