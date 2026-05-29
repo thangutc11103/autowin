@@ -101,6 +101,36 @@ interface VideoItemsResponse {
     error?: string;
 }
 
+interface AiPlanItem {
+    id: string;
+    videoItemId: string;
+    caption: string;
+    scheduledAt: string;
+    itemOrder: number;
+}
+
+interface AiPlan {
+    id: string;
+    status: 'draft' | 'approved';
+    preset: string;
+    timezone: string;
+    itemCount: number;
+    items: AiPlanItem[];
+}
+
+interface AiPlanResponse {
+    success?: boolean;
+    plan?: AiPlan;
+    error?: string;
+}
+
+interface AiApproveResponse {
+    success?: boolean;
+    alreadyApproved?: boolean;
+    enqueuedTargets?: number;
+    error?: string;
+}
+
 const COPY = {
     vi: {
         pageTitle: 'Tự động đăng bài',
@@ -272,6 +302,28 @@ const OAUTH_PLATFORM_LABELS: Record<OAuthPlatform, string> = {
 };
 
 const READY_VIDEOS_PER_PAGE = 7;
+const AI_PRESETS = [
+    { value: '1_per_day', vi: '1 video/ngày', en: '1 video/day' },
+    { value: '3_per_day', vi: '3 video/ngày', en: '3 videos/day' },
+    { value: '5_per_day', vi: '5 video/ngày', en: '5 videos/day' },
+    { value: '10_per_day', vi: '10 video/ngày', en: '10 videos/day' },
+] as const;
+
+function getTomorrowDateInput() {
+    const date = new Date();
+    date.setDate(date.getDate() + 1);
+    return date.toISOString().slice(0, 10);
+}
+
+function toDateTimeLocalValue(value: string) {
+    const date = new Date(value);
+    const offsetMs = date.getTimezoneOffset() * 60_000;
+    return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function fromDateTimeLocalValue(value: string) {
+    return new Date(value).toISOString();
+}
 
 function getAccountLabel(account: PublishingAccount) {
     return (
@@ -437,6 +489,23 @@ export default function AutomationPage() {
     const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
     const [queueMessage, setQueueMessage] = useState<string | null>(null);
     const [isQueueing, setIsQueueing] = useState(false);
+    const [aiSelectedItemIds, setAiSelectedItemIds] = useState<string[]>([]);
+    const [aiPreset, setAiPreset] = useState<(typeof AI_PRESETS)[number]['value']>('3_per_day');
+    const [aiStartDate, setAiStartDate] = useState(getTomorrowDateInput);
+    const [aiTimezone, setAiTimezone] = useState(() => {
+        try {
+            return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Bangkok';
+        } catch {
+            return 'Asia/Bangkok';
+        }
+    });
+    const [aiWindowStart, setAiWindowStart] = useState('09:00');
+    const [aiWindowEnd, setAiWindowEnd] = useState('21:00');
+    const [aiPlan, setAiPlan] = useState<AiPlan | null>(null);
+    const [aiPlanItems, setAiPlanItems] = useState<AiPlanItem[]>([]);
+    const [aiMessage, setAiMessage] = useState<string | null>(null);
+    const [isGeneratingAiPlan, setIsGeneratingAiPlan] = useState(false);
+    const [isApprovingAiPlan, setIsApprovingAiPlan] = useState(false);
     const [checks, setChecks] = useState<Record<ComplianceKey, boolean>>({
         rights: false,
         review: true,
@@ -548,6 +617,11 @@ export default function AutomationPage() {
                 if (!cancelled) {
                     const items = data.items || [];
                     setReadyItems(items);
+                    setAiSelectedItemIds((current) => {
+                        const validIds = new Set(items.map((item) => item.id));
+                        const scoped = current.filter((id) => validIds.has(id));
+                        return scoped.length > 0 ? scoped : items.slice(0, 10).map((item) => item.id);
+                    });
                     setSelectedVideoId((current) => {
                         if (current && items.some((item) => item.video.id === current)) {
                             return current;
@@ -731,6 +805,126 @@ export default function AutomationPage() {
         }
     };
 
+    const toggleAiItem = (itemId: string) => {
+        setAiSelectedItemIds((current) =>
+            current.includes(itemId)
+                ? current.filter((id) => id !== itemId)
+                : [...current, itemId],
+        );
+    };
+
+    const setAiAllItems = (checked: boolean) => {
+        setAiSelectedItemIds(checked ? readyItems.map((item) => item.id) : []);
+    };
+
+    const generateAiPlan = async () => {
+        if (aiSelectedItemIds.length === 0) {
+            setAiMessage(language === 'vi' ? 'Chọn ít nhất một video sẵn sàng.' : 'Select at least one ready video.');
+            return;
+        }
+
+        if (selectedTargets.length === 0) {
+            setAiMessage(language === 'vi' ? 'Chọn ít nhất một kênh đăng.' : 'Select at least one publishing target.');
+            return;
+        }
+
+        setIsGeneratingAiPlan(true);
+        setAiMessage(null);
+
+        try {
+            const response = await fetch('/api/ai/post-plan/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    itemIds: aiSelectedItemIds,
+                    preset: aiPreset,
+                    startDate: aiStartDate,
+                    timezone: aiTimezone,
+                    timeWindow: {
+                        start: aiWindowStart,
+                        end: aiWindowEnd,
+                    },
+                    language,
+                    accountTargets: selectedTargets.map((target) => ({
+                        accountKey: target.accountKey,
+                        platform: target.platform,
+                        accountLabel: target.label,
+                        pageRecordId: target.page?.id,
+                        pageName: target.page?.pageName,
+                    })),
+                }),
+            });
+            const result = (await response.json()) as AiPlanResponse;
+
+            if (!response.ok || result.error || !result.plan) {
+                throw new Error(result.error || 'Failed to generate AI plan');
+            }
+
+            setAiPlan(result.plan);
+            setAiPlanItems(result.plan.items);
+            setAiMessage(language === 'vi' ? 'Đã tạo bản nháp AI. Hãy kiểm tra trước khi duyệt.' : 'AI draft plan created. Review before approving.');
+        } catch (error) {
+            setAiMessage(error instanceof Error ? error.message : 'Failed to generate AI plan');
+        } finally {
+            setIsGeneratingAiPlan(false);
+        }
+    };
+
+    const approveAiPlan = async () => {
+        if (!aiPlan) return;
+
+        if (selectedTargets.length === 0) {
+            setAiMessage(language === 'vi' ? 'Chọn ít nhất một kênh đăng.' : 'Select at least one publishing target.');
+            return;
+        }
+
+        setIsApprovingAiPlan(true);
+        setAiMessage(null);
+
+        try {
+            const response = await fetch('/api/ai/post-plan/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    planId: aiPlan.id,
+                    items: aiPlanItems.map((item) => ({
+                        id: item.id,
+                        caption: item.caption,
+                        scheduledAt: item.scheduledAt,
+                    })),
+                    accountTargets: selectedTargets.map((target) => ({
+                        accountKey: target.accountKey,
+                        platform: target.platform,
+                        accountLabel: target.label,
+                        pageRecordId: target.page?.id,
+                        pageName: target.page?.pageName,
+                    })),
+                }),
+            });
+            const result = (await response.json()) as AiApproveResponse;
+
+            if (!response.ok || result.error) {
+                throw new Error(result.error || 'Failed to approve AI plan');
+            }
+
+            await loadScheduledPosts(true);
+            setMode('scheduled');
+            setAiMessage(
+                result.alreadyApproved
+                    ? language === 'vi'
+                        ? 'Kế hoạch này đã được duyệt trước đó.'
+                        : 'This plan was already approved.'
+                    : language === 'vi'
+                        ? `Đã tạo lịch cho ${result.enqueuedTargets || 0} target.`
+                        : `Created schedule for ${result.enqueuedTargets || 0} target(s).`,
+            );
+        } catch (error) {
+            setAiMessage(error instanceof Error ? error.message : 'Failed to approve AI plan');
+        } finally {
+            setIsApprovingAiPlan(false);
+        }
+    };
+
     return (
         <div className="flex h-full flex-col overflow-hidden bg-white">
             <div className="flex-none border-b border-gray-100 px-6 py-4">
@@ -759,7 +953,237 @@ export default function AutomationPage() {
 
             <div className="flex-1 overflow-y-auto px-6 py-5">
                 {mode === 'draft' ? (
-                    <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)_320px]">
+                    <div className="space-y-5">
+                        <section className="rounded-xl border border-cyan-300/15 bg-slate-950/80 p-4 text-slate-100 shadow-sm">
+                            <div className="flex flex-wrap items-start justify-between gap-4">
+                                <div>
+                                    <h2 className="text-lg font-bold">
+                                        {language === 'vi' ? 'AI Planner' : 'AI Planner'}
+                                    </h2>
+                                    <p className="mt-1 max-w-2xl text-sm text-slate-300">
+                                        {language === 'vi'
+                                            ? 'AI chỉ tạo caption từ tiêu đề video. Bạn vẫn phải duyệt trước khi hệ thống tạo lịch đăng.'
+                                            : 'AI only writes captions from video titles. You still approve before schedules are created.'}
+                                    </p>
+                                </div>
+                                <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-xs font-bold text-cyan-100">
+                                    {aiSelectedItemIds.length}/{readyItems.length} ready
+                                </span>
+                            </div>
+
+                            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]">
+                                <div className="rounded-lg border border-cyan-300/10 bg-slate-900/70 p-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <h3 className="text-sm font-bold">
+                                            {language === 'vi' ? 'Chọn video sẵn sàng' : 'Ready videos'}
+                                        </h3>
+                                        <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-300">
+                                            <input
+                                                type="checkbox"
+                                                checked={readyItems.length > 0 && aiSelectedItemIds.length === readyItems.length}
+                                                onChange={(event) => setAiAllItems(event.target.checked)}
+                                                className="size-4 accent-cyan-400"
+                                            />
+                                            {language === 'vi' ? 'Chọn tất cả' : 'Select all'}
+                                        </label>
+                                    </div>
+                                    <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto pr-1">
+                                        {readyItems.length === 0 ? (
+                                            <p className="rounded-lg border border-dashed border-cyan-300/15 p-4 text-sm text-slate-400">
+                                                {language === 'vi' ? 'Chưa có video ready.' : 'No ready videos.'}
+                                            </p>
+                                        ) : (
+                                            readyItems.map((item) => (
+                                                <label
+                                                    key={item.id}
+                                                    className={`flex cursor-pointer items-center gap-3 rounded-lg border p-2 transition-colors ${aiSelectedItemIds.includes(item.id)
+                                                        ? 'border-cyan-300/60 bg-cyan-300/10'
+                                                        : 'border-cyan-300/10 bg-slate-950/60 hover:border-cyan-300/30'
+                                                        }`}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={aiSelectedItemIds.includes(item.id)}
+                                                        onChange={() => toggleAiItem(item.id)}
+                                                        className="size-4 accent-cyan-400"
+                                                    />
+                                                    <div className="relative aspect-[9/16] h-14 shrink-0 overflow-hidden rounded-md bg-slate-800">
+                                                        {item.video.thumbnail ? (
+                                                            <Image
+                                                                src={item.video.thumbnail}
+                                                                alt={item.video.title}
+                                                                fill
+                                                                unoptimized
+                                                                sizes="42px"
+                                                                className="object-cover"
+                                                            />
+                                                        ) : null}
+                                                    </div>
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className="line-clamp-1 text-sm font-semibold text-slate-100">
+                                                            {item.video.title}
+                                                        </span>
+                                                        <span className="text-xs text-slate-400">
+                                                            {getPlatformLabel(item.video.platform)}
+                                                        </span>
+                                                    </span>
+                                                </label>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="rounded-lg border border-cyan-300/10 bg-slate-900/70 p-3">
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        <label className="block">
+                                            <span className="text-xs font-bold uppercase text-slate-300">
+                                                {language === 'vi' ? 'Preset' : 'Preset'}
+                                            </span>
+                                            <select
+                                                value={aiPreset}
+                                                onChange={(event) => setAiPreset(event.target.value as typeof aiPreset)}
+                                                className="mt-1 w-full rounded-lg border border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300"
+                                            >
+                                                {AI_PRESETS.map((preset) => (
+                                                    <option key={preset.value} value={preset.value}>
+                                                        {language === 'vi' ? preset.vi : preset.en}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </label>
+                                        <label className="block">
+                                            <span className="text-xs font-bold uppercase text-slate-300">
+                                                {language === 'vi' ? 'Ngày bắt đầu' : 'Start date'}
+                                            </span>
+                                            <input
+                                                type="date"
+                                                value={aiStartDate}
+                                                onChange={(event) => setAiStartDate(event.target.value)}
+                                                className="mt-1 w-full rounded-lg border border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300"
+                                            />
+                                        </label>
+                                        <label className="block sm:col-span-2">
+                                            <span className="text-xs font-bold uppercase text-slate-300">Timezone</span>
+                                            <input
+                                                value={aiTimezone}
+                                                onChange={(event) => setAiTimezone(event.target.value)}
+                                                className="mt-1 w-full rounded-lg border border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300"
+                                                placeholder="Asia/Bangkok"
+                                            />
+                                        </label>
+                                        <label className="block">
+                                            <span className="text-xs font-bold uppercase text-slate-300">
+                                                {language === 'vi' ? 'Từ giờ' : 'From'}
+                                            </span>
+                                            <input
+                                                type="time"
+                                                value={aiWindowStart}
+                                                onChange={(event) => setAiWindowStart(event.target.value)}
+                                                className="mt-1 w-full rounded-lg border border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300"
+                                            />
+                                        </label>
+                                        <label className="block">
+                                            <span className="text-xs font-bold uppercase text-slate-300">
+                                                {language === 'vi' ? 'Đến giờ' : 'To'}
+                                            </span>
+                                            <input
+                                                type="time"
+                                                value={aiWindowEnd}
+                                                onChange={(event) => setAiWindowEnd(event.target.value)}
+                                                className="mt-1 w-full rounded-lg border border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300"
+                                            />
+                                        </label>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => void generateAiPlan()}
+                                        disabled={isGeneratingAiPlan || aiSelectedItemIds.length === 0 || selectedTargets.length === 0}
+                                        className="mt-4 w-full rounded-lg bg-gradient-to-r from-blue-600 via-cyan-500 to-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-cyan-950/40 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        {isGeneratingAiPlan
+                                            ? language === 'vi' ? 'Đang tạo...' : 'Generating...'
+                                            : language === 'vi' ? 'Tạo kế hoạch bằng AI' : 'Generate AI plan'}
+                                    </button>
+                                    {aiMessage ? (
+                                        <p className="mt-3 rounded-lg border border-cyan-300/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-200">
+                                            {aiMessage}
+                                        </p>
+                                    ) : null}
+                                </div>
+                            </div>
+
+                            {aiPlan ? (
+                                <div className="mt-4 rounded-lg border border-cyan-300/10 bg-slate-900/70 p-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <h3 className="text-sm font-bold">
+                                            {language === 'vi' ? 'Bản nháp kế hoạch' : 'Draft plan'}
+                                        </h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => void approveAiPlan()}
+                                            disabled={isApprovingAiPlan || aiPlanItems.length === 0}
+                                            className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-emerald-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            {isApprovingAiPlan
+                                                ? language === 'vi' ? 'Đang duyệt...' : 'Approving...'
+                                                : language === 'vi' ? 'Duyệt và tạo lịch' : 'Approve and schedule'}
+                                        </button>
+                                    </div>
+                                    <div className="mt-3 grid gap-3">
+                                        {aiPlanItems.map((item, index) => {
+                                            const video = readyItems.find((readyItem) => readyItem.id === item.videoItemId)?.video;
+
+                                            return (
+                                                <div key={item.id} className="grid gap-3 rounded-lg border border-cyan-300/10 bg-slate-950/70 p-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+                                                    <label className="block">
+                                                        <span className="text-xs font-bold uppercase text-slate-400">
+                                                            #{index + 1} {video?.title || item.videoItemId}
+                                                        </span>
+                                                        <textarea
+                                                            value={item.caption}
+                                                            onChange={(event) =>
+                                                                setAiPlanItems((current) =>
+                                                                    current.map((planItem) =>
+                                                                        planItem.id === item.id
+                                                                            ? { ...planItem, caption: event.target.value }
+                                                                            : planItem,
+                                                                    ),
+                                                                )
+                                                            }
+                                                            className="mt-1 min-h-20 w-full resize-none rounded-lg border border-cyan-300/15 bg-slate-900 px-3 py-2 text-sm leading-6 text-slate-100 outline-none focus:border-cyan-300"
+                                                        />
+                                                    </label>
+                                                    <label className="block">
+                                                        <span className="text-xs font-bold uppercase text-slate-400">
+                                                            {language === 'vi' ? 'Giờ đăng' : 'Scheduled time'}
+                                                        </span>
+                                                        <input
+                                                            type="datetime-local"
+                                                            value={toDateTimeLocalValue(item.scheduledAt)}
+                                                            onChange={(event) =>
+                                                                setAiPlanItems((current) =>
+                                                                    current.map((planItem) =>
+                                                                        planItem.id === item.id
+                                                                            ? { ...planItem, scheduledAt: fromDateTimeLocalValue(event.target.value) }
+                                                                            : planItem,
+                                                                    ),
+                                                                )
+                                                            }
+                                                            className="mt-1 w-full rounded-lg border border-cyan-300/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300"
+                                                        />
+                                                        <p className="mt-2 text-xs text-slate-400">
+                                                            {item.caption.length} / 2200 {text.characters}
+                                                        </p>
+                                                    </label>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </section>
+
+                        <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)_320px]">
                         <section className="min-w-0">
                             <div className="mb-3 flex items-center justify-between">
                                 <h2 className="text-sm font-bold text-gray-950">{text.readyMedia}</h2>
@@ -1008,6 +1432,7 @@ export default function AutomationPage() {
                                 </div>
                             </section>
                         </aside>
+                    </div>
                     </div>
                 ) : (
                     <div className="grid gap-3">

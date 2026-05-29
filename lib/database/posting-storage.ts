@@ -36,6 +36,8 @@ export interface QueuePostInput {
   publishWindow: "now" | "schedule";
   scheduledAt?: string | null;
   accountTargets: QueuePostTargetInput[];
+  source?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ScheduledPostRecord {
@@ -138,7 +140,7 @@ async function withClient<T>(
   }
 }
 
-async function ensurePostingStorage(): Promise<void> {
+export async function ensurePostingStorage(): Promise<void> {
   if (!schemaPromise) {
     schemaPromise = withClient(async (client) => {
       await client.query(`
@@ -172,6 +174,16 @@ async function ensurePostingStorage(): Promise<void> {
       `);
 
       await client.query(`
+        ALTER TABLE scheduled_posts
+        ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+      `);
+
+      await client.query(`
+        ALTER TABLE scheduled_posts
+        ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::JSONB;
+      `);
+
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_scheduled_posts_status_scheduled_at
         ON scheduled_posts (status, scheduled_at);
       `);
@@ -184,6 +196,11 @@ async function ensurePostingStorage(): Promise<void> {
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_scheduled_posts_tenant_user_status
         ON scheduled_posts (tenant_id, user_id, status, scheduled_at);
+      `);
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_scheduled_posts_source
+        ON scheduled_posts (tenant_id, source);
       `);
 
       await client.query(`
@@ -337,9 +354,11 @@ export async function createQueuedPost(
             publish_window,
             scheduled_at,
             queued_at,
-            video_payload
+            video_payload,
+            source,
+            metadata
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::JSONB)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::JSONB, $14, $15::JSONB)
         `,
         [
           postId,
@@ -355,6 +374,8 @@ export async function createQueuedPost(
           input.scheduledAt || null,
           queuedAt,
           JSON.stringify(input.video),
+          input.source || "manual",
+          JSON.stringify(input.metadata || {}),
         ],
       );
 
