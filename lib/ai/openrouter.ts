@@ -64,7 +64,6 @@ export async function generateCaptionsWithOpenRouter(params: {
       model,
       messages,
       temperature: 0.4,
-      response_format: { type: "json_object" },
     }),
   });
 
