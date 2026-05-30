@@ -1,5 +1,6 @@
 import {
   AI_CAPTION_SYSTEM_PROMPT,
+  buildFallbackCaptions,
   parseAiCaptionResponse,
   type AiCaptionItem,
 } from "@/lib/ai/post-plan";
@@ -77,8 +78,16 @@ export async function generateCaptionsWithOpenRouter(params: {
     throw new Error("OpenRouter returned an empty response");
   }
 
-  return parseAiCaptionResponse({
-    raw,
-    expectedVideoItemIds: params.items.map((item) => item.videoItemId),
-  });
+  try {
+    return parseAiCaptionResponse({
+      raw,
+      expectedVideoItemIds: params.items.map((item) => item.videoItemId),
+    });
+  } catch (error) {
+    console.warn("[OpenRouter] Invalid JSON response, using deterministic fallback captions", {
+      error: error instanceof Error ? error.message : "Unknown parse error",
+      model,
+    });
+    return buildFallbackCaptions(params);
+  }
 }

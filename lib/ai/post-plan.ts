@@ -112,9 +112,10 @@ export function parseAiCaptionResponse(params: {
   expectedVideoItemIds: string[];
 }): AiCaptionItem[] {
   let parsed: unknown;
+  const rawJson = extractJsonObject(params.raw);
 
   try {
-    parsed = JSON.parse(params.raw);
+    parsed = JSON.parse(rawJson);
   } catch {
     throw new Error("AI returned invalid JSON format");
   }
@@ -161,6 +162,22 @@ export function parseAiCaptionResponse(params: {
   }
 
   return items;
+}
+
+export function buildFallbackCaptions(params: {
+  items: Array<{ videoItemId: string; title: string }>;
+  language: "vi" | "en";
+}): AiCaptionItem[] {
+  return params.items.map((item) => {
+    const title = item.title.trim();
+    return {
+      videoItemId: item.videoItemId,
+      caption:
+        params.language === "vi"
+          ? `${title}\n\nBạn nghĩ sao về video này?`
+          : `${title}\n\nWhat do you think about this video?`,
+    };
+  });
 }
 
 export function validatePlanItemOverrides(params: {
@@ -272,4 +289,22 @@ function getTimeZoneOffsetMs(date: Date, timeZone: string): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function extractJsonObject(raw: string): string {
+  const trimmed = raw.trim();
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
+  const candidate = fenced?.[1]?.trim() || trimmed;
+
+  if (candidate.startsWith("{") && candidate.endsWith("}")) {
+    return candidate;
+  }
+
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    return candidate.slice(start, end + 1);
+  }
+
+  return candidate;
 }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  buildFallbackCaptions,
   buildScheduleSlots,
   getCaptionLimitForTargets,
   parseAiCaptionResponse,
@@ -34,6 +35,20 @@ assert.deepEqual(parsed, [
   { videoItemId: "video-1", caption: "Caption one" },
   { videoItemId: "video-2", caption: "Caption two" },
 ]);
+
+const fenced = parseAiCaptionResponse({
+  raw: '```json\n{"items":[{"videoItemId":"video-1","caption":"Caption one"}]}\n```',
+  expectedVideoItemIds: ["video-1"],
+});
+assert.deepEqual(fenced, [{ videoItemId: "video-1", caption: "Caption one" }]);
+
+assert.deepEqual(
+  buildFallbackCaptions({
+    language: "vi",
+    items: [{ videoItemId: "video-1", title: "Bánh mì giòn tan" }],
+  }),
+  [{ videoItemId: "video-1", caption: "Bánh mì giòn tan\n\nBạn nghĩ sao về video này?" }],
+);
 
 assert.throws(
   () =>
