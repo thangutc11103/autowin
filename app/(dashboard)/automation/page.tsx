@@ -2,8 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
+import { ConfigProvider, DatePicker, TimePicker, theme } from 'antd';
+import dayjs from 'dayjs';
+import customParseFormat from 'dayjs/plugin/customParseFormat';
 import { useLanguageStore, type AppLanguage } from '@/store/language.store';
 import type { Platform, Video } from '@/types/video';
+
+dayjs.extend(customParseFormat);
 
 type PostMode = 'draft' | 'scheduled';
 type PublishWindow = 'now' | 'schedule';
@@ -309,6 +314,20 @@ const AI_PRESETS = [
     { value: '10_per_day', vi: '10 video/ngày', en: '10 videos/day' },
 ] as const;
 
+const AI_PLANNER_TIMEZONE = 'Asia/Bangkok';
+const ANTD_DARK_THEME = {
+    algorithm: theme.darkAlgorithm,
+    token: {
+        colorBgContainer: '#020617',
+        colorBgElevated: '#0f172a',
+        colorBorder: 'rgba(103, 232, 249, 0.18)',
+        colorPrimary: '#22d3ee',
+        colorText: '#f8fafc',
+        colorTextPlaceholder: '#94a3b8',
+        borderRadius: 10,
+    },
+};
+
 function getTomorrowDateInput() {
     const date = new Date();
     date.setDate(date.getDate() + 1);
@@ -492,13 +511,6 @@ export default function AutomationPage() {
     const [aiSelectedItemIds, setAiSelectedItemIds] = useState<string[]>([]);
     const [aiPreset, setAiPreset] = useState<(typeof AI_PRESETS)[number]['value']>('3_per_day');
     const [aiStartDate, setAiStartDate] = useState(getTomorrowDateInput);
-    const [aiTimezone, setAiTimezone] = useState(() => {
-        try {
-            return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Bangkok';
-        } catch {
-            return 'Asia/Bangkok';
-        }
-    });
     const [aiWindowStart, setAiWindowStart] = useState('09:00');
     const [aiWindowEnd, setAiWindowEnd] = useState('21:00');
     const [aiPlan, setAiPlan] = useState<AiPlan | null>(null);
@@ -839,7 +851,7 @@ export default function AutomationPage() {
                     itemIds: aiSelectedItemIds,
                     preset: aiPreset,
                     startDate: aiStartDate,
-                    timezone: aiTimezone,
+                    timezone: AI_PLANNER_TIMEZONE,
                     timeWindow: {
                         start: aiWindowStart,
                         end: aiWindowEnd,
@@ -1034,6 +1046,7 @@ export default function AutomationPage() {
                                 </div>
 
                                 <div className="rounded-lg border border-cyan-300/10 bg-slate-900/70 p-3">
+                                    <ConfigProvider theme={ANTD_DARK_THEME}>
                                     <div className="grid gap-3 sm:grid-cols-2">
                                         <label className="block">
                                             <span className="text-xs font-bold uppercase text-slate-300">
@@ -1055,42 +1068,38 @@ export default function AutomationPage() {
                                             <span className="text-xs font-bold uppercase text-slate-300">
                                                 {language === 'vi' ? 'Ngày bắt đầu' : 'Start date'}
                                             </span>
-                                            <input
-                                                type="date"
-                                                value={aiStartDate}
-                                                onChange={(event) => setAiStartDate(event.target.value)}
-                                                className="mt-1 w-full rounded-lg border border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300"
-                                            />
-                                        </label>
-                                        <label className="block sm:col-span-2">
-                                            <span className="text-xs font-bold uppercase text-slate-300">Timezone</span>
-                                            <input
-                                                value={aiTimezone}
-                                                onChange={(event) => setAiTimezone(event.target.value)}
-                                                className="mt-1 w-full rounded-lg border border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300"
-                                                placeholder="Asia/Bangkok"
+                                            <DatePicker
+                                                value={aiStartDate ? dayjs(aiStartDate, 'YYYY-MM-DD') : null}
+                                                onChange={(value) => setAiStartDate(value ? value.format('YYYY-MM-DD') : '')}
+                                                format="DD/MM/YYYY"
+                                                className="mt-1 w-full border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm"
+                                                placeholder={language === 'vi' ? 'Chọn ngày' : 'Select date'}
                                             />
                                         </label>
                                         <label className="block">
                                             <span className="text-xs font-bold uppercase text-slate-300">
                                                 {language === 'vi' ? 'Từ giờ' : 'From'}
                                             </span>
-                                            <input
-                                                type="time"
-                                                value={aiWindowStart}
-                                                onChange={(event) => setAiWindowStart(event.target.value)}
-                                                className="mt-1 w-full rounded-lg border border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300"
+                                            <TimePicker
+                                                value={aiWindowStart ? dayjs(aiWindowStart, 'HH:mm') : null}
+                                                onChange={(value) => setAiWindowStart(value ? value.format('HH:mm') : '')}
+                                                format="HH:mm"
+                                                minuteStep={5}
+                                                className="mt-1 w-full border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm"
+                                                placeholder={language === 'vi' ? 'Chọn giờ' : 'Select time'}
                                             />
                                         </label>
                                         <label className="block">
                                             <span className="text-xs font-bold uppercase text-slate-300">
                                                 {language === 'vi' ? 'Đến giờ' : 'To'}
                                             </span>
-                                            <input
-                                                type="time"
-                                                value={aiWindowEnd}
-                                                onChange={(event) => setAiWindowEnd(event.target.value)}
-                                                className="mt-1 w-full rounded-lg border border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300"
+                                            <TimePicker
+                                                value={aiWindowEnd ? dayjs(aiWindowEnd, 'HH:mm') : null}
+                                                onChange={(value) => setAiWindowEnd(value ? value.format('HH:mm') : '')}
+                                                format="HH:mm"
+                                                minuteStep={5}
+                                                className="mt-1 w-full border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm"
+                                                placeholder={language === 'vi' ? 'Chọn giờ' : 'Select time'}
                                             />
                                         </label>
                                     </div>
@@ -1109,6 +1118,7 @@ export default function AutomationPage() {
                                             {aiMessage}
                                         </p>
                                     ) : null}
+                                    </ConfigProvider>
                                 </div>
                             </div>
 

@@ -256,7 +256,7 @@ export async function incrementAiUsage(params: {
           item_count = ai_usage_events.item_count + EXCLUDED.item_count,
           updated_at = NOW()
       `,
-      [tenantId, params.userId, params.feature, params.itemCount, usageDate],
+      [tenantId, params.userId, params.feature, usageDate, params.itemCount],
     ),
   );
 }
