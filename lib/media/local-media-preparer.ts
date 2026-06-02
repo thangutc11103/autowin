@@ -460,6 +460,7 @@ async function downloadFile(
   targetPath: string,
   headers: HeadersInit = {},
 ): Promise<void> {
+  console.log(`[MEDIA PREPARE] Downloading media url=${url.slice(0, 120)}`);
   const response = await fetch(url, {
     headers: {
       "User-Agent": "Mozilla/5.0",
@@ -468,7 +469,25 @@ async function downloadFile(
   });
 
   if (!response.ok || !response.body) {
-    throw new Error(`Failed to download media: HTTP ${response.status}`);
+    const errorText = await response.text().catch(() => "");
+    console.error(
+      `[MEDIA PREPARE] Download failed status=${response.status} contentType=${response.headers.get("content-type") || "unknown"} url=${url.slice(0, 120)}`,
+    );
+    throw new Error(
+      errorText.trim() || `Failed to download media: HTTP ${response.status}`,
+    );
+  }
+
+  const contentType = response.headers.get("content-type")?.toLowerCase() || "";
+  if (contentType.includes("text/html") || contentType.includes("text/plain")) {
+    const errorText = await response.text().catch(() => "");
+    console.error(
+      `[MEDIA PREPARE] Download returned non-media contentType=${contentType} url=${url.slice(0, 120)} body="${errorText.trim().slice(0, 120)}"`,
+    );
+    throw new Error(
+      errorText.trim().slice(0, 160) ||
+        `Unexpected media response content type: ${contentType}`,
+    );
   }
 
   const fileStream = createWriteStream(targetPath);
@@ -537,12 +556,14 @@ async function getMediaUrls(video: Video): Promise<{
   mediaAudioUrl?: string | null;
 }> {
   if (video.mediaVideoUrl) {
+    console.log(`[MEDIA PREPARE] Using stored media URL video=${video.id} platform=${video.platform}`);
     return {
       mediaVideoUrl: video.mediaVideoUrl,
       mediaAudioUrl: video.mediaAudioUrl,
     };
   }
 
+  console.log(`[MEDIA PREPARE] Resolving media with yt-dlp video=${video.id} platform=${video.platform}`);
   const resolved = await resolveMediaWithYtDlp(video.url);
 
   if (!resolved.success || !resolved.mediaVideoUrl) {
@@ -555,7 +576,44 @@ async function getMediaUrls(video: Video): Promise<{
   };
 }
 
+async function refreshFacebookMediaUrls(video: Video): Promise<{
+  mediaVideoUrl: string;
+  mediaAudioUrl?: string | null;
+} | null> {
+  if (video.platform !== "facebook") {
+    return null;
+  }
+
+  console.log(`[MEDIA PREPARE] Refreshing Facebook media URL video=${video.id} url=${video.url}`);
+  const { FacebookPlaywrightScraper } = await import(
+    "@/lib/scrapers/facebook-decodo-scraper"
+  );
+  const scraper = new FacebookPlaywrightScraper();
+  const result = await scraper.crawlUrl(video.url, "url", 1);
+  const freshVideo = result.data[0];
+  const rawPayload = freshVideo?.rawPayload;
+  const mediaVideoUrl =
+    rawPayload && typeof rawPayload.mediaVideoUrl === "string"
+      ? rawPayload.mediaVideoUrl
+      : null;
+
+  if (!mediaVideoUrl) {
+    console.error(`[MEDIA PREPARE] Facebook refresh did not return media URL video=${video.id}`);
+    return null;
+  }
+
+  console.log(`[MEDIA PREPARE] Facebook refresh returned media URL video=${video.id}`);
+  return {
+    mediaVideoUrl,
+    mediaAudioUrl:
+      rawPayload && typeof rawPayload.mediaAudioUrl === "string"
+        ? rawPayload.mediaAudioUrl
+        : null,
+  };
+}
+
 export async function prepareVideoForPosting(video: Video): Promise<Video> {
+  console.log(`[MEDIA PREPARE] Start video=${video.id} platform=${video.platform}`);
   await mkdir(OUTPUT_DIR, { recursive: true });
   await mkdir(TEMP_DIR, { recursive: true });
 
@@ -567,9 +625,13 @@ export async function prepareVideoForPosting(video: Video): Promise<Video> {
 
   if (video.platform === "tiktok") {
     try {
+      console.log(`[MEDIA PREPARE] TikTok provider chain start video=${video.id}`);
       const tiktokMedia = await getTikTokDownloadUrl(video);
       const tempPath = path.join(TEMP_DIR, `${baseName}-tiktok.mp4`);
 
+      console.log(
+        `[MEDIA PREPARE] TikTok provider success video=${video.id} provider=${tiktokMedia.provider} urls=${tiktokMedia.videoUrls.length}`,
+      );
       await downloadFirstAvailableFile({
         urls: tiktokMedia.videoUrls,
         targetPath: tempPath,
@@ -580,6 +642,7 @@ export async function prepareVideoForPosting(video: Video): Promise<Video> {
       });
       await rename(tempPath, outputPath);
 
+      console.log(`[MEDIA PREPARE] TikTok prepared video=${video.id} provider=${tiktokMedia.provider}`);
       return finalizePreparedVideo({
         video,
         outputPath,
@@ -593,6 +656,7 @@ export async function prepareVideoForPosting(video: Video): Promise<Video> {
       });
     } catch (error) {
       tiktokError = error instanceof Error ? error.message : String(error);
+      console.error(`[MEDIA PREPARE] TikTok provider chain failed video=${video.id}: ${tiktokError}`);
     }
   }
 
@@ -602,59 +666,84 @@ export async function prepareVideoForPosting(video: Video): Promise<Video> {
     mediaUrls = await getMediaUrls(video);
   } catch (error) {
     const mediaError = error instanceof Error ? error.message : String(error);
+    console.error(`[MEDIA PREPARE] Media URL resolve failed video=${video.id}: ${mediaError}`);
     throw new Error(
       tiktokError
         ? `TikTok API failed: ${tiktokError}. Media fallback failed: ${mediaError}`
         : mediaError,
     );
   }
-  const videoExt = getExtensionFromUrl(mediaUrls.mediaVideoUrl, ".mp4");
-  const videoTempPath = path.join(TEMP_DIR, `${baseName}-video${videoExt}`);
-  const audioTempPath = mediaUrls.mediaAudioUrl
-    ? path.join(
-        TEMP_DIR,
-        `${baseName}-audio${getExtensionFromUrl(mediaUrls.mediaAudioUrl, ".m4a")}`,
-      )
-    : null;
+  const prepareWithMediaUrls = async (urls: typeof mediaUrls) => {
+    const videoExt = getExtensionFromUrl(urls.mediaVideoUrl, ".mp4");
+    const videoTempPath = path.join(TEMP_DIR, `${baseName}-video${videoExt}`);
+    const audioTempPath = urls.mediaAudioUrl
+      ? path.join(
+          TEMP_DIR,
+          `${baseName}-audio${getExtensionFromUrl(urls.mediaAudioUrl, ".m4a")}`,
+        )
+      : null;
 
-  try {
-    await downloadFile(mediaUrls.mediaVideoUrl, videoTempPath);
+    try {
+      await downloadFile(urls.mediaVideoUrl, videoTempPath);
 
-    if (audioTempPath && mediaUrls.mediaAudioUrl) {
-      await downloadFile(mediaUrls.mediaAudioUrl, audioTempPath);
-      await muxVideoAndAudio({
-        videoPath: videoTempPath,
-        audioPath: audioTempPath,
-        outputPath,
-      });
+      if (audioTempPath && urls.mediaAudioUrl) {
+        await downloadFile(urls.mediaAudioUrl, audioTempPath);
+        await muxVideoAndAudio({
+          videoPath: videoTempPath,
+          audioPath: audioTempPath,
+          outputPath,
+        });
+
+        return finalizePreparedVideo({
+          video,
+          outputPath,
+          localUrl,
+          baseName,
+          source: "ffmpeg-mux",
+          mediaVideoUrl: urls.mediaVideoUrl,
+          mediaAudioUrl: urls.mediaAudioUrl,
+        });
+      }
+
+      await rename(videoTempPath, outputPath);
 
       return finalizePreparedVideo({
         video,
         outputPath,
         localUrl,
         baseName,
-        source: "ffmpeg-mux",
-        mediaVideoUrl: mediaUrls.mediaVideoUrl,
-        mediaAudioUrl: mediaUrls.mediaAudioUrl,
+        source: "direct-media",
+        mediaVideoUrl: urls.mediaVideoUrl,
+        mediaAudioUrl: urls.mediaAudioUrl,
       });
+    } finally {
+      await rm(videoTempPath, { force: true }).catch(() => undefined);
+
+      if (audioTempPath) {
+        await rm(audioTempPath, { force: true }).catch(() => undefined);
+      }
+    }
+  };
+
+  try {
+    const prepared = await prepareWithMediaUrls(mediaUrls);
+    console.log(`[MEDIA PREPARE] Completed video=${video.id} source=${prepared.preparedSource || "unknown"}`);
+    return prepared;
+  } catch (error) {
+    if (video.platform !== "facebook") {
+      throw error;
     }
 
-    await rename(videoTempPath, outputPath);
-
-    return finalizePreparedVideo({
-      video,
-      outputPath,
-      localUrl,
-      baseName,
-      source: "direct-media",
-      mediaVideoUrl: mediaUrls.mediaVideoUrl,
-      mediaAudioUrl: mediaUrls.mediaAudioUrl,
-    });
-  } finally {
-    await rm(videoTempPath, { force: true }).catch(() => undefined);
-
-    if (audioTempPath) {
-      await rm(audioTempPath, { force: true }).catch(() => undefined);
+    console.error(
+      `[MEDIA PREPARE] Facebook stored media failed video=${video.id}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    const freshMediaUrls = await refreshFacebookMediaUrls(video);
+    if (!freshMediaUrls) {
+      throw error;
     }
+
+    const prepared = await prepareWithMediaUrls(freshMediaUrls);
+    console.log(`[MEDIA PREPARE] Completed video=${video.id} source=${prepared.preparedSource || "unknown"} refreshed=true`);
+    return prepared;
   }
 }

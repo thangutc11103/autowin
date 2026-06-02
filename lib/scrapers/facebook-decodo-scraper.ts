@@ -36,10 +36,11 @@ interface FacebookVideoResponse {
 
 function getFacebookScrollPlan(limit: number) {
   const tier = Math.min(Math.max(Math.ceil(limit / 10), 1), 5);
+  const baseWaitMs = (tier + 1) * 1000;
 
   return {
     maxScrolls: tier * 2,
-    waitMs: (tier + 1) * 1000,
+    waitMs: baseWaitMs + 3000,
   };
 }
 

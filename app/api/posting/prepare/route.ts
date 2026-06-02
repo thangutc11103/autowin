@@ -78,9 +78,16 @@ export async function POST(request: NextRequest) {
     const readyItems: UserVideoItemRecord[] = [];
     const failures: PreparePostingFailure[] = [];
 
+    console.log(
+      `[POSTING PREPARE] Start tenant=${currentUser.tenantId} user=${currentUser.id} items=${selectedItems.length}`,
+    );
+
     for (const item of selectedItems) {
       try {
         const video = item.video;
+        console.log(
+          `[POSTING PREPARE] Preparing item=${item.id} video=${video.id} platform=${video.platform} title="${video.title.slice(0, 80)}"`,
+        );
         const preparedVideo = await prepareVideoForPosting(video);
         preparedVideos.push(preparedVideo);
         const readyItem = await upsertUserVideoItem({
@@ -91,6 +98,9 @@ export async function POST(request: NextRequest) {
           video: preparedVideo,
         });
         readyItems.push(readyItem);
+        console.log(
+          `[POSTING PREPARE] Ready item=${readyItem.id} video=${preparedVideo.id} source=${preparedVideo.preparedSource || "unknown"}`,
+        );
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.error(`[POSTING PREPARE] ${item.video.id} failed: ${errorMsg}`);
@@ -122,6 +132,10 @@ export async function POST(request: NextRequest) {
         { status: 500 },
       );
     }
+
+    console.log(
+      `[POSTING PREPARE] Completed tenant=${currentUser.tenantId} user=${currentUser.id} ready=${readyItems.length}`,
+    );
 
     return Response.json({
       success: true,
