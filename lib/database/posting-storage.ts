@@ -40,6 +40,22 @@ export interface QueuePostInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface QueuePostBatchItemInput {
+  video: Video;
+  caption: string;
+  scheduledAt: string;
+}
+
+export interface QueuePostBatchInput {
+  tenantId?: string;
+  userId: string;
+  idempotencyKey: string;
+  items: QueuePostBatchItemInput[];
+  accountTargets: QueuePostTargetInput[];
+  source?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ScheduledPostRecord {
   id: string;
   tenantId?: string;
@@ -184,6 +200,11 @@ export async function ensurePostingStorage(): Promise<void> {
       `);
 
       await client.query(`
+        ALTER TABLE scheduled_posts
+        ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+      `);
+
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_scheduled_posts_status_scheduled_at
         ON scheduled_posts (status, scheduled_at);
       `);
@@ -201,6 +222,12 @@ export async function ensurePostingStorage(): Promise<void> {
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_scheduled_posts_source
         ON scheduled_posts (tenant_id, source);
+      `);
+
+      await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_posts_unique_idempotency
+        ON scheduled_posts (tenant_id, user_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
       `);
 
       await client.query(`
@@ -429,6 +456,127 @@ export async function createQueuedPost(
   }
 
   return post;
+}
+
+export async function createQueuedPostBatch(
+  input: QueuePostBatchInput,
+): Promise<ScheduledPostRecord[]> {
+  const tenantId = normalizeTenantId(input.tenantId);
+  await ensureTenant(tenantId);
+  await ensurePostingStorage();
+
+  if (input.items.length === 0) {
+    throw new Error("At least one queued post item is required");
+  }
+
+  const postIds: string[] = [];
+  const queuedAt = new Date().toISOString();
+
+  await withClient(async (client) => {
+    await client.query("BEGIN");
+
+    try {
+      for (const [index, item] of input.items.entries()) {
+        const postId = randomUUID();
+        const itemIdempotencyKey = `${input.idempotencyKey}:${item.video.id}:${index}`;
+        postIds.push(postId);
+
+        await client.query(
+          `
+            INSERT INTO scheduled_posts (
+              id,
+              tenant_id,
+              user_id,
+              video_id,
+              video_title,
+              video_url,
+              video_thumbnail,
+              caption,
+              status,
+              publish_window,
+              scheduled_at,
+              queued_at,
+              video_payload,
+              source,
+              metadata,
+              idempotency_key
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'scheduled', 'schedule', $9, $10, $11::JSONB, $12, $13::JSONB, $14)
+          `,
+          [
+            postId,
+            tenantId,
+            input.userId,
+            item.video.id,
+            item.video.title,
+            item.video.preparedLocalUrl || item.video.url,
+            item.video.thumbnail || null,
+            item.caption,
+            item.scheduledAt,
+            queuedAt,
+            JSON.stringify(item.video),
+            input.source || "manual_planner",
+            JSON.stringify({
+              ...(input.metadata || {}),
+              batchIdempotencyKey: input.idempotencyKey,
+              itemOrder: index,
+            }),
+            itemIdempotencyKey,
+          ],
+        );
+
+        for (const target of input.accountTargets) {
+          await client.query(
+            `
+              INSERT INTO post_targets (
+                id,
+                tenant_id,
+                user_id,
+                post_id,
+                account_key,
+                platform,
+                account_label,
+                page_record_id,
+                page_name,
+                status
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'scheduled')
+            `,
+            [
+              randomUUID(),
+              tenantId,
+              input.userId,
+              postId,
+              target.accountKey,
+              target.platform,
+              target.accountLabel || null,
+              target.pageRecordId || null,
+              target.pageName || null,
+            ],
+          );
+        }
+      }
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
+
+  const posts = await Promise.all(
+    postIds.map(async (postId) => {
+      const [post] = await listScheduledPosts({
+        tenantId,
+        userId: input.userId,
+        limit: 1,
+        postId,
+      });
+      return post;
+    }),
+  );
+
+  return posts.filter((post): post is ScheduledPostRecord => Boolean(post));
 }
 
 export async function listScheduledPosts(params?: {

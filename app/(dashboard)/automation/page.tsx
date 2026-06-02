@@ -7,6 +7,12 @@ import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
 import { useLanguageStore, type AppLanguage } from '@/store/language.store';
 import type { Platform, Video } from '@/types/video';
+import {
+    buildManualPostPlan,
+    getPostPlanPresetOptions,
+    MANUAL_POST_PLANNER_TIMEZONE,
+    type ManualPlanItem,
+} from '@/lib/posting/manual-post-plan';
 
 dayjs.extend(customParseFormat);
 
@@ -106,33 +112,9 @@ interface VideoItemsResponse {
     error?: string;
 }
 
-interface AiPlanItem {
-    id: string;
-    videoItemId: string;
-    caption: string;
-    scheduledAt: string;
-    itemOrder: number;
-}
-
-interface AiPlan {
-    id: string;
-    status: 'draft' | 'approved';
-    preset: string;
-    timezone: string;
-    itemCount: number;
-    items: AiPlanItem[];
-}
-
-interface AiPlanResponse {
+interface BatchQueueResponse {
     success?: boolean;
-    plan?: AiPlan;
-    error?: string;
-}
-
-interface AiApproveResponse {
-    success?: boolean;
-    alreadyApproved?: boolean;
-    enqueuedTargets?: number;
+    posts?: ScheduledPost[];
     error?: string;
 }
 
@@ -307,14 +289,6 @@ const OAUTH_PLATFORM_LABELS: Record<OAuthPlatform, string> = {
 };
 
 const READY_VIDEOS_PER_PAGE = 7;
-const AI_PRESETS = [
-    { value: '1_per_day', vi: '1 video/ngày', en: '1 video/day' },
-    { value: '3_per_day', vi: '3 video/ngày', en: '3 videos/day' },
-    { value: '5_per_day', vi: '5 video/ngày', en: '5 videos/day' },
-    { value: '10_per_day', vi: '10 video/ngày', en: '10 videos/day' },
-] as const;
-
-const AI_PLANNER_TIMEZONE = 'Asia/Bangkok';
 const ANTD_DARK_THEME = {
     algorithm: theme.darkAlgorithm,
     token: {
@@ -508,16 +482,16 @@ export default function AutomationPage() {
     const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
     const [queueMessage, setQueueMessage] = useState<string | null>(null);
     const [isQueueing, setIsQueueing] = useState(false);
-    const [aiSelectedItemIds, setAiSelectedItemIds] = useState<string[]>([]);
-    const [aiPreset, setAiPreset] = useState<(typeof AI_PRESETS)[number]['value']>('3_per_day');
-    const [aiStartDate, setAiStartDate] = useState(getTomorrowDateInput);
-    const [aiWindowStart, setAiWindowStart] = useState('09:00');
-    const [aiWindowEnd, setAiWindowEnd] = useState('21:00');
-    const [aiPlan, setAiPlan] = useState<AiPlan | null>(null);
-    const [aiPlanItems, setAiPlanItems] = useState<AiPlanItem[]>([]);
-    const [aiMessage, setAiMessage] = useState<string | null>(null);
-    const [isGeneratingAiPlan, setIsGeneratingAiPlan] = useState(false);
-    const [isApprovingAiPlan, setIsApprovingAiPlan] = useState(false);
+    const [planSelectedItemIds, setPlanSelectedItemIds] = useState<string[]>([]);
+    const [videosPerDay, setVideosPerDay] = useState(1);
+    const [planStartDate, setPlanStartDate] = useState(getTomorrowDateInput);
+    const [planWindowStart, setPlanWindowStart] = useState('09:00');
+    const [planWindowEnd, setPlanWindowEnd] = useState('21:00');
+    const [manualPlanId, setManualPlanId] = useState<string | null>(null);
+    const [manualPlanItems, setManualPlanItems] = useState<ManualPlanItem[]>([]);
+    const [planMessage, setPlanMessage] = useState<string | null>(null);
+    const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+    const [isApprovingPlan, setIsApprovingPlan] = useState(false);
     const [checks, setChecks] = useState<Record<ComplianceKey, boolean>>({
         rights: false,
         review: true,
@@ -600,6 +574,10 @@ export default function AutomationPage() {
         () => publishingTargets.filter((target) => selectedTargetIds.includes(target.id)),
         [publishingTargets, selectedTargetIds],
     );
+    const planPresetOptions = useMemo(
+        () => getPostPlanPresetOptions(planSelectedItemIds.length),
+        [planSelectedItemIds.length],
+    );
     const scheduledAt =
         publishWindow === 'schedule' && scheduleDate && scheduleTime
             ? new Date(`${scheduleDate}T${scheduleTime}`).toISOString()
@@ -629,11 +607,12 @@ export default function AutomationPage() {
                 if (!cancelled) {
                     const items = data.items || [];
                     setReadyItems(items);
-                    setAiSelectedItemIds((current) => {
+                    setPlanSelectedItemIds((current) => {
                         const validIds = new Set(items.map((item) => item.id));
                         const scoped = current.filter((id) => validIds.has(id));
                         return scoped.length > 0 ? scoped : items.slice(0, 10).map((item) => item.id);
                     });
+                    setVideosPerDay((current) => Math.max(1, Math.min(current, Math.max(1, items.length))));
                     setSelectedVideoId((current) => {
                         if (current && items.some((item) => item.video.id === current)) {
                             return current;
@@ -817,90 +796,111 @@ export default function AutomationPage() {
         }
     };
 
-    const toggleAiItem = (itemId: string) => {
-        setAiSelectedItemIds((current) =>
-            current.includes(itemId)
+    const clearManualPlan = () => {
+        setManualPlanId(null);
+        setManualPlanItems([]);
+    };
+
+    const togglePlanItem = (itemId: string) => {
+        setPlanSelectedItemIds((current) => {
+            const next = current.includes(itemId)
                 ? current.filter((id) => id !== itemId)
-                : [...current, itemId],
+                : [...current, itemId];
+            setVideosPerDay((value) => Math.max(1, Math.min(value, Math.max(1, next.length))));
+            return next;
+        });
+        clearManualPlan();
+    };
+
+    const setAllPlanItems = (checked: boolean) => {
+        const next = checked ? readyItems.map((item) => item.id) : [];
+        setPlanSelectedItemIds(next);
+        setVideosPerDay((value) => Math.max(1, Math.min(value, Math.max(1, next.length))));
+        clearManualPlan();
+    };
+
+    const updateManualPlanItem = (itemId: string, patch: Partial<ManualPlanItem>) => {
+        setManualPlanItems((current) =>
+            current.map((item) => (item.id === itemId ? { ...item, ...patch } : item)),
         );
     };
 
-    const setAiAllItems = (checked: boolean) => {
-        setAiSelectedItemIds(checked ? readyItems.map((item) => item.id) : []);
+    const updateManualPlanSchedule = (
+        item: ManualPlanItem,
+        nextDate: dayjs.Dayjs | null,
+        nextTime: dayjs.Dayjs | null,
+    ) => {
+        const currentLocal = dayjs(toDateTimeLocalValue(item.scheduledAt), 'YYYY-MM-DDTHH:mm');
+        const datePart = (nextDate || currentLocal).format('YYYY-MM-DD');
+        const timePart = (nextTime || currentLocal).format('HH:mm');
+        updateManualPlanItem(item.id, {
+            scheduledAt: fromDateTimeLocalValue(
+                [datePart, timePart].join('T'),
+            ),
+        });
     };
 
-    const generateAiPlan = async () => {
-        if (aiSelectedItemIds.length === 0) {
-            setAiMessage(language === 'vi' ? 'Chọn ít nhất một video sẵn sàng.' : 'Select at least one ready video.');
+    const generateManualPlan = () => {
+        if (planSelectedItemIds.length === 0) {
+            setPlanMessage(language === 'vi' ? 'Ch\u1ecdn \u00edt nh\u1ea5t m\u1ed9t video s\u1eb5n s\u00e0ng.' : 'Select at least one ready video.');
             return;
         }
 
         if (selectedTargets.length === 0) {
-            setAiMessage(language === 'vi' ? 'Chọn ít nhất một kênh đăng.' : 'Select at least one publishing target.');
+            setPlanMessage(language === 'vi' ? 'Ch\u1ecdn \u00edt nh\u1ea5t m\u1ed9t k\u00eanh \u0111\u0103ng.' : 'Select at least one publishing target.');
             return;
         }
 
-        setIsGeneratingAiPlan(true);
-        setAiMessage(null);
+        setIsGeneratingPlan(true);
+        setPlanMessage(null);
 
         try {
-            const response = await fetch('/api/ai/post-plan/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    itemIds: aiSelectedItemIds,
-                    preset: aiPreset,
-                    startDate: aiStartDate,
-                    timezone: AI_PLANNER_TIMEZONE,
-                    timeWindow: {
-                        start: aiWindowStart,
-                        end: aiWindowEnd,
-                    },
-                    language,
-                    accountTargets: selectedTargets.map((target) => ({
-                        accountKey: target.accountKey,
-                        platform: target.platform,
-                        accountLabel: target.label,
-                        pageRecordId: target.page?.id,
-                        pageName: target.page?.pageName,
-                    })),
-                }),
+            const selectedReadyItems = planSelectedItemIds
+                .map((id) => readyItems.find((item) => item.id === id))
+                .filter((item): item is UserVideoItem => Boolean(item));
+            const planItems = buildManualPostPlan({
+                items: selectedReadyItems.map((item) => ({
+                    videoItemId: item.id,
+                    title: item.video.title,
+                })),
+                videosPerDay: Math.min(videosPerDay, selectedReadyItems.length),
+                startDate: planStartDate,
+                timeWindow: {
+                    start: planWindowStart,
+                    end: planWindowEnd,
+                },
+                timezone: MANUAL_POST_PLANNER_TIMEZONE,
             });
-            const result = (await response.json()) as AiPlanResponse;
 
-            if (!response.ok || result.error || !result.plan) {
-                throw new Error(result.error || 'Failed to generate AI plan');
-            }
-
-            setAiPlan(result.plan);
-            setAiPlanItems(result.plan.items);
-            setAiMessage(language === 'vi' ? 'Đã tạo bản nháp AI. Hãy kiểm tra trước khi duyệt.' : 'AI draft plan created. Review before approving.');
+            setManualPlanId(crypto.randomUUID());
+            setManualPlanItems(planItems);
+            setPlanMessage(language === 'vi' ? '\u0110\u00e3 t\u1ea1o b\u1ea3n nh\u00e1p k\u1ebf ho\u1ea1ch. Ki\u1ec3m tra tr\u01b0\u1edbc khi duy\u1ec7t.' : 'Draft plan created. Review before scheduling.');
         } catch (error) {
-            setAiMessage(error instanceof Error ? error.message : 'Failed to generate AI plan');
+            setPlanMessage(error instanceof Error ? error.message : 'Failed to create plan');
         } finally {
-            setIsGeneratingAiPlan(false);
+            setIsGeneratingPlan(false);
         }
     };
 
-    const approveAiPlan = async () => {
-        if (!aiPlan) return;
+    const approveManualPlan = async () => {
+        if (!manualPlanId || manualPlanItems.length === 0) return;
 
         if (selectedTargets.length === 0) {
-            setAiMessage(language === 'vi' ? 'Chọn ít nhất một kênh đăng.' : 'Select at least one publishing target.');
+            setPlanMessage(language === 'vi' ? 'Ch\u1ecdn \u00edt nh\u1ea5t m\u1ed9t k\u00eanh \u0111\u0103ng.' : 'Select at least one publishing target.');
             return;
         }
 
-        setIsApprovingAiPlan(true);
-        setAiMessage(null);
+        setIsApprovingPlan(true);
+        setPlanMessage(null);
 
         try {
-            const response = await fetch('/api/ai/post-plan/approve', {
+            const response = await fetch('/api/posting/queue/batch', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    planId: aiPlan.id,
-                    items: aiPlanItems.map((item) => ({
-                        id: item.id,
+                    idempotencyKey: manualPlanId,
+                    items: manualPlanItems.map((item) => ({
+                        videoItemId: item.videoItemId,
                         caption: item.caption,
                         scheduledAt: item.scheduledAt,
                     })),
@@ -913,27 +913,23 @@ export default function AutomationPage() {
                     })),
                 }),
             });
-            const result = (await response.json()) as AiApproveResponse;
+            const result = (await response.json()) as BatchQueueResponse;
 
             if (!response.ok || result.error) {
-                throw new Error(result.error || 'Failed to approve AI plan');
+                throw new Error(result.error || 'Failed to schedule plan');
             }
 
             await loadScheduledPosts(true);
             setMode('scheduled');
-            setAiMessage(
-                result.alreadyApproved
-                    ? language === 'vi'
-                        ? 'Kế hoạch này đã được duyệt trước đó.'
-                        : 'This plan was already approved.'
-                    : language === 'vi'
-                        ? `Đã tạo lịch cho ${result.enqueuedTargets || 0} target.`
-                        : `Created schedule for ${result.enqueuedTargets || 0} target(s).`,
+            setPlanMessage(
+                language === 'vi'
+                    ? '\u0110\u00e3 t\u1ea1o l\u1ecbch cho ' + (result.posts?.length || 0) + ' b\u00e0i \u0111\u0103ng.'
+                    : 'Scheduled ' + (result.posts?.length || 0) + ' post(s).',
             );
         } catch (error) {
-            setAiMessage(error instanceof Error ? error.message : 'Failed to approve AI plan');
+            setPlanMessage(error instanceof Error ? error.message : 'Failed to schedule plan');
         } finally {
-            setIsApprovingAiPlan(false);
+            setIsApprovingPlan(false);
         }
     };
 
@@ -970,16 +966,16 @@ export default function AutomationPage() {
                             <div className="flex flex-wrap items-start justify-between gap-4">
                                 <div>
                                     <h2 className="text-lg font-bold">
-                                        {language === 'vi' ? 'AI Planner' : 'AI Planner'}
+                                        {language === 'vi' ? 'T\u1ea1o k\u1ebf ho\u1ea1ch \u0111\u0103ng b\u00e0i' : 'Post planner'}
                                     </h2>
                                     <p className="mt-1 max-w-2xl text-sm text-slate-300">
                                         {language === 'vi'
-                                            ? 'AI chỉ tạo caption từ tiêu đề video. Bạn vẫn phải duyệt trước khi hệ thống tạo lịch đăng.'
-                                            : 'AI only writes captions from video titles. You still approve before schedules are created.'}
+                                            ? 'Ch\u1ecdn video s\u1eb5n s\u00e0ng, chia \u0111\u1ec1u l\u1ecbch \u0111\u0103ng theo ng\u00e0y v\u00e0 ch\u1ec9nh l\u1ea1i t\u1eebng m\u1ed1c gi\u1edd tr\u01b0\u1edbc khi duy\u1ec7t.'
+                                            : 'Select ready videos, spread them across days, then review each scheduled slot before approval.'}
                                     </p>
                                 </div>
                                 <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-xs font-bold text-cyan-100">
-                                    {aiSelectedItemIds.length}/{readyItems.length} ready
+                                    {planSelectedItemIds.length}/{readyItems.length} ready
                                 </span>
                             </div>
 
@@ -987,36 +983,35 @@ export default function AutomationPage() {
                                 <div className="rounded-lg border border-cyan-300/10 bg-slate-900/70 p-3">
                                     <div className="flex items-center justify-between gap-3">
                                         <h3 className="text-sm font-bold">
-                                            {language === 'vi' ? 'Chọn video sẵn sàng' : 'Ready videos'}
+                                            {language === 'vi' ? 'Ch\u1ecdn video s\u1eb5n s\u00e0ng' : 'Ready videos'}
                                         </h3>
                                         <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-300">
                                             <input
                                                 type="checkbox"
-                                                checked={readyItems.length > 0 && aiSelectedItemIds.length === readyItems.length}
-                                                onChange={(event) => setAiAllItems(event.target.checked)}
+                                                checked={readyItems.length > 0 && planSelectedItemIds.length === readyItems.length}
+                                                onChange={(event) => setAllPlanItems(event.target.checked)}
                                                 className="size-4 accent-cyan-400"
                                             />
-                                            {language === 'vi' ? 'Chọn tất cả' : 'Select all'}
+                                            {language === 'vi' ? 'Ch\u1ecdn t\u1ea5t c\u1ea3' : 'Select all'}
                                         </label>
                                     </div>
                                     <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto pr-1">
                                         {readyItems.length === 0 ? (
                                             <p className="rounded-lg border border-dashed border-cyan-300/15 p-4 text-sm text-slate-400">
-                                                {language === 'vi' ? 'Chưa có video ready.' : 'No ready videos.'}
+                                                {language === 'vi' ? 'Ch\u01b0a c\u00f3 video ready.' : 'No ready videos.'}
                                             </p>
                                         ) : (
                                             readyItems.map((item) => (
                                                 <label
                                                     key={item.id}
-                                                    className={`flex cursor-pointer items-center gap-3 rounded-lg border p-2 transition-colors ${aiSelectedItemIds.includes(item.id)
+                                                    className={'flex cursor-pointer items-center gap-3 rounded-lg border p-2 transition-colors ' + (planSelectedItemIds.includes(item.id)
                                                         ? 'border-cyan-300/60 bg-cyan-300/10'
-                                                        : 'border-cyan-300/10 bg-slate-950/60 hover:border-cyan-300/30'
-                                                        }`}
+                                                        : 'border-cyan-300/10 bg-slate-950/60 hover:border-cyan-300/30')}
                                                 >
                                                     <input
                                                         type="checkbox"
-                                                        checked={aiSelectedItemIds.includes(item.id)}
-                                                        onChange={() => toggleAiItem(item.id)}
+                                                        checked={planSelectedItemIds.includes(item.id)}
+                                                        onChange={() => togglePlanItem(item.id)}
                                                         className="size-4 accent-cyan-400"
                                                     />
                                                     <div className="relative aspect-[9/16] h-14 shrink-0 overflow-hidden rounded-md bg-slate-800">
@@ -1047,144 +1042,152 @@ export default function AutomationPage() {
 
                                 <div className="rounded-lg border border-cyan-300/10 bg-slate-900/70 p-3">
                                     <ConfigProvider theme={ANTD_DARK_THEME}>
-                                    <div className="grid gap-3 sm:grid-cols-2">
-                                        <label className="block">
-                                            <span className="text-xs font-bold uppercase text-slate-300">
-                                                {language === 'vi' ? 'Preset' : 'Preset'}
-                                            </span>
-                                            <select
-                                                value={aiPreset}
-                                                onChange={(event) => setAiPreset(event.target.value as typeof aiPreset)}
-                                                className="mt-1 w-full rounded-lg border border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300"
-                                            >
-                                                {AI_PRESETS.map((preset) => (
-                                                    <option key={preset.value} value={preset.value}>
-                                                        {language === 'vi' ? preset.vi : preset.en}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </label>
-                                        <label className="block">
-                                            <span className="text-xs font-bold uppercase text-slate-300">
-                                                {language === 'vi' ? 'Ngày bắt đầu' : 'Start date'}
-                                            </span>
-                                            <DatePicker
-                                                value={aiStartDate ? dayjs(aiStartDate, 'YYYY-MM-DD') : null}
-                                                onChange={(value) => setAiStartDate(value ? value.format('YYYY-MM-DD') : '')}
-                                                format="DD/MM/YYYY"
-                                                className="mt-1 w-full border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm"
-                                                placeholder={language === 'vi' ? 'Chọn ngày' : 'Select date'}
-                                            />
-                                        </label>
-                                        <label className="block">
-                                            <span className="text-xs font-bold uppercase text-slate-300">
-                                                {language === 'vi' ? 'Từ giờ' : 'From'}
-                                            </span>
-                                            <TimePicker
-                                                value={aiWindowStart ? dayjs(aiWindowStart, 'HH:mm') : null}
-                                                onChange={(value) => setAiWindowStart(value ? value.format('HH:mm') : '')}
-                                                format="HH:mm"
-                                                minuteStep={5}
-                                                className="mt-1 w-full border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm"
-                                                placeholder={language === 'vi' ? 'Chọn giờ' : 'Select time'}
-                                            />
-                                        </label>
-                                        <label className="block">
-                                            <span className="text-xs font-bold uppercase text-slate-300">
-                                                {language === 'vi' ? 'Đến giờ' : 'To'}
-                                            </span>
-                                            <TimePicker
-                                                value={aiWindowEnd ? dayjs(aiWindowEnd, 'HH:mm') : null}
-                                                onChange={(value) => setAiWindowEnd(value ? value.format('HH:mm') : '')}
-                                                format="HH:mm"
-                                                minuteStep={5}
-                                                className="mt-1 w-full border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm"
-                                                placeholder={language === 'vi' ? 'Chọn giờ' : 'Select time'}
-                                            />
-                                        </label>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => void generateAiPlan()}
-                                        disabled={isGeneratingAiPlan || aiSelectedItemIds.length === 0 || selectedTargets.length === 0}
-                                        className="mt-4 w-full rounded-lg bg-gradient-to-r from-blue-600 via-cyan-500 to-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-cyan-950/40 disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                        {isGeneratingAiPlan
-                                            ? language === 'vi' ? 'Đang tạo...' : 'Generating...'
-                                            : language === 'vi' ? 'Tạo kế hoạch bằng AI' : 'Generate AI plan'}
-                                    </button>
-                                    {aiMessage ? (
-                                        <p className="mt-3 rounded-lg border border-cyan-300/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-200">
-                                            {aiMessage}
-                                        </p>
-                                    ) : null}
+                                        <div className="grid gap-3 sm:grid-cols-2">
+                                            <label className="block">
+                                                <span className="text-xs font-bold uppercase text-slate-300">
+                                                    {language === 'vi' ? 'Video m\u1ed7i ng\u00e0y' : 'Videos per day'}
+                                                </span>
+                                                <select
+                                                    value={videosPerDay}
+                                                    onChange={(event) => {
+                                                        setVideosPerDay(Number(event.target.value));
+                                                        clearManualPlan();
+                                                    }}
+                                                    className="mt-1 w-full rounded-lg border border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300"
+                                                >
+                                                    {planPresetOptions.map((count) => (
+                                                        <option key={count} value={count}>
+                                                            {language === 'vi' ? count + ' video/ng\u00e0y' : count + ' video/day'}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </label>
+                                            <label className="block">
+                                                <span className="text-xs font-bold uppercase text-slate-300">
+                                                    {language === 'vi' ? 'Ng\u00e0y b\u1eaft \u0111\u1ea7u' : 'Start date'}
+                                                </span>
+                                                <DatePicker
+                                                    value={planStartDate ? dayjs(planStartDate, 'YYYY-MM-DD') : null}
+                                                    onChange={(value) => {
+                                                        setPlanStartDate(value ? value.format('YYYY-MM-DD') : '');
+                                                        clearManualPlan();
+                                                    }}
+                                                    format="DD/MM/YYYY"
+                                                    className="mt-1 w-full border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm"
+                                                    placeholder={language === 'vi' ? 'Ch\u1ecdn ng\u00e0y' : 'Select date'}
+                                                />
+                                            </label>
+                                            <label className="block">
+                                                <span className="text-xs font-bold uppercase text-slate-300">
+                                                    {language === 'vi' ? 'T\u1eeb gi\u1edd' : 'From'}
+                                                </span>
+                                                <TimePicker
+                                                    value={planWindowStart ? dayjs(planWindowStart, 'HH:mm') : null}
+                                                    onChange={(value) => {
+                                                        setPlanWindowStart(value ? value.format('HH:mm') : '');
+                                                        clearManualPlan();
+                                                    }}
+                                                    format="HH:mm"
+                                                    minuteStep={5}
+                                                    className="mt-1 w-full border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm"
+                                                    placeholder={language === 'vi' ? 'Ch\u1ecdn gi\u1edd' : 'Select time'}
+                                                />
+                                            </label>
+                                            <label className="block">
+                                                <span className="text-xs font-bold uppercase text-slate-300">
+                                                    {language === 'vi' ? '\u0110\u1ebfn gi\u1edd' : 'To'}
+                                                </span>
+                                                <TimePicker
+                                                    value={planWindowEnd ? dayjs(planWindowEnd, 'HH:mm') : null}
+                                                    onChange={(value) => {
+                                                        setPlanWindowEnd(value ? value.format('HH:mm') : '');
+                                                        clearManualPlan();
+                                                    }}
+                                                    format="HH:mm"
+                                                    minuteStep={5}
+                                                    className="mt-1 w-full border-cyan-300/15 bg-slate-950 px-3 py-2 text-sm"
+                                                    placeholder={language === 'vi' ? 'Ch\u1ecdn gi\u1edd' : 'Select time'}
+                                                />
+                                            </label>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={generateManualPlan}
+                                            disabled={isGeneratingPlan || planSelectedItemIds.length === 0 || selectedTargets.length === 0}
+                                            className="mt-4 w-full rounded-lg bg-gradient-to-r from-blue-600 via-cyan-500 to-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-cyan-950/40 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            {isGeneratingPlan
+                                                ? language === 'vi' ? '\u0110ang t\u1ea1o...' : 'Creating...'
+                                                : language === 'vi' ? 'T\u1ea1o k\u1ebf ho\u1ea1ch' : 'Create plan'}
+                                        </button>
+                                        {planMessage ? (
+                                            <p className="mt-3 rounded-lg border border-cyan-300/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-200">
+                                                {planMessage}
+                                            </p>
+                                        ) : null}
                                     </ConfigProvider>
                                 </div>
                             </div>
 
-                            {aiPlan ? (
+                            {manualPlanItems.length > 0 ? (
                                 <div className="mt-4 rounded-lg border border-cyan-300/10 bg-slate-900/70 p-3">
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                         <h3 className="text-sm font-bold">
-                                            {language === 'vi' ? 'Bản nháp kế hoạch' : 'Draft plan'}
+                                            {language === 'vi' ? 'B\u1ea3n nh\u00e1p k\u1ebf ho\u1ea1ch' : 'Draft plan'}
                                         </h3>
                                         <button
                                             type="button"
-                                            onClick={() => void approveAiPlan()}
-                                            disabled={isApprovingAiPlan || aiPlanItems.length === 0}
+                                            onClick={() => void approveManualPlan()}
+                                            disabled={isApprovingPlan || manualPlanItems.length === 0}
                                             className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-emerald-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
                                         >
-                                            {isApprovingAiPlan
-                                                ? language === 'vi' ? 'Đang duyệt...' : 'Approving...'
-                                                : language === 'vi' ? 'Duyệt và tạo lịch' : 'Approve and schedule'}
+                                            {isApprovingPlan
+                                                ? language === 'vi' ? '\u0110ang t\u1ea1o l\u1ecbch...' : 'Scheduling...'
+                                                : language === 'vi' ? 'Duy\u1ec7t v\u00e0 t\u1ea1o l\u1ecbch' : 'Approve and schedule'}
                                         </button>
                                     </div>
                                     <div className="mt-3 grid gap-3">
-                                        {aiPlanItems.map((item, index) => {
+                                        {manualPlanItems.map((item, index) => {
                                             const video = readyItems.find((readyItem) => readyItem.id === item.videoItemId)?.video;
+                                            const localScheduledAt = dayjs(toDateTimeLocalValue(item.scheduledAt), 'YYYY-MM-DDTHH:mm');
 
                                             return (
-                                                <div key={item.id} className="grid gap-3 rounded-lg border border-cyan-300/10 bg-slate-950/70 p-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+                                                <div key={item.id} className="grid gap-3 rounded-lg border border-cyan-300/10 bg-slate-950/70 p-3 lg:grid-cols-[minmax(0,1fr)_260px]">
                                                     <label className="block">
                                                         <span className="text-xs font-bold uppercase text-slate-400">
                                                             #{index + 1} {video?.title || item.videoItemId}
                                                         </span>
                                                         <textarea
                                                             value={item.caption}
-                                                            onChange={(event) =>
-                                                                setAiPlanItems((current) =>
-                                                                    current.map((planItem) =>
-                                                                        planItem.id === item.id
-                                                                            ? { ...planItem, caption: event.target.value }
-                                                                            : planItem,
-                                                                    ),
-                                                                )
-                                                            }
+                                                            onChange={(event) => updateManualPlanItem(item.id, { caption: event.target.value })}
                                                             className="mt-1 min-h-20 w-full resize-none rounded-lg border border-cyan-300/15 bg-slate-900 px-3 py-2 text-sm leading-6 text-slate-100 outline-none focus:border-cyan-300"
                                                         />
                                                     </label>
-                                                    <label className="block">
+                                                    <div>
                                                         <span className="text-xs font-bold uppercase text-slate-400">
-                                                            {language === 'vi' ? 'Giờ đăng' : 'Scheduled time'}
+                                                            {language === 'vi' ? 'L\u1ecbch \u0111\u0103ng' : 'Scheduled time'}
                                                         </span>
-                                                        <input
-                                                            type="datetime-local"
-                                                            value={toDateTimeLocalValue(item.scheduledAt)}
-                                                            onChange={(event) =>
-                                                                setAiPlanItems((current) =>
-                                                                    current.map((planItem) =>
-                                                                        planItem.id === item.id
-                                                                            ? { ...planItem, scheduledAt: fromDateTimeLocalValue(event.target.value) }
-                                                                            : planItem,
-                                                                    ),
-                                                                )
-                                                            }
-                                                            className="mt-1 w-full rounded-lg border border-cyan-300/15 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300"
-                                                        />
+                                                        <ConfigProvider theme={ANTD_DARK_THEME}>
+                                                            <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                                                                <DatePicker
+                                                                    value={localScheduledAt}
+                                                                    onChange={(value) => updateManualPlanSchedule(item, value, null)}
+                                                                    format="DD/MM/YYYY"
+                                                                    className="w-full border-cyan-300/15 bg-slate-900 px-3 py-2 text-sm"
+                                                                />
+                                                                <TimePicker
+                                                                    value={localScheduledAt}
+                                                                    onChange={(value) => updateManualPlanSchedule(item, null, value)}
+                                                                    format="HH:mm"
+                                                                    minuteStep={5}
+                                                                    className="w-full border-cyan-300/15 bg-slate-900 px-3 py-2 text-sm"
+                                                                />
+                                                            </div>
+                                                        </ConfigProvider>
                                                         <p className="mt-2 text-xs text-slate-400">
                                                             {item.caption.length} / 2200 {text.characters}
                                                         </p>
-                                                    </label>
+                                                    </div>
                                                 </div>
                                             );
                                         })}
