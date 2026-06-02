@@ -72,15 +72,36 @@ export async function uploadR2Object(params: {
 }): Promise<{ key: string; publicUrl: string }> {
   const bucket = getRequiredEnv("R2_BUCKET");
 
-  await getR2Client().send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: params.key,
-      Body: params.body,
-      ContentType: params.contentType,
-      CacheControl: params.cacheControl,
-    }),
+  console.log(
+    `[R2] Upload start bucket=${bucket} key=${params.key} bytes=${params.body.length}`,
   );
+
+  try {
+    await getR2Client().send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: params.key,
+        Body: params.body,
+        ContentType: params.contentType,
+        CacheControl: params.cacheControl,
+      }),
+    );
+  } catch (error) {
+    const details =
+      error && typeof error === "object"
+        ? {
+            name: "name" in error ? (error as { name?: unknown }).name : undefined,
+            code: "$metadata" in error
+              ? (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode
+              : undefined,
+            message: error instanceof Error ? error.message : String(error),
+          }
+        : { message: String(error) };
+    console.error(`[R2] Upload failed bucket=${bucket} key=${params.key}`, details);
+    throw error;
+  }
+
+  console.log(`[R2] Upload complete bucket=${bucket} key=${params.key}`);
 
   return {
     key: params.key,

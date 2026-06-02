@@ -1,20 +1,16 @@
 # Dockerfile for Web Service (Next.js Production)
 
 # Stage 1: Build
-FROM node:20-alpine AS builder
+FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     make \
     g++ \
-    cairo-dev \
-    pango-dev \
-    jpeg-dev \
-    giflib-dev \
-    librsvg-dev \
-    pixman-dev
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 RUN npm ci
@@ -24,18 +20,14 @@ RUN mkdir -p public
 RUN npm run build
 
 # Stage 2: Runtime
-FROM node:20-alpine
+FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
-    cairo \
-    pango \
-    jpeg \
-    giflib \
-    librsvg \
-    pixman
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
@@ -44,6 +36,9 @@ COPY --from=builder /app/package*.json ./
 
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+RUN npx playwright install --with-deps chromium
 
 EXPOSE 3000
 
