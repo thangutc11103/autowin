@@ -54,3 +54,6 @@ next-env.d.ts
 
 # Understand Anything local graph
 .understand-anything/
+
+# Local Git worktrees
+.worktrees/
