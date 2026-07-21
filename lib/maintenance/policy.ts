@@ -1,5 +1,11 @@
 export type MaintenanceDecision = "allow" | "block-page" | "block-api";
 
+export function isMaintenanceAdmin(
+  user: { role: string } | null | undefined,
+): boolean {
+  return user?.role === "owner" || user?.role === "admin";
+}
+
 const STATIC_ROOT_PATHS = new Set([
   "/favicon.ico",
   "/robots.txt",

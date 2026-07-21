@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useLanguageStore } from "@/store/language.store";
 
 type Role = "owner" | "admin" | "editor" | "viewer";
@@ -323,13 +324,21 @@ export default function AdminPage() {
               {text.description}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={resetForm}
-            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
-          >
-            {text.newUser}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/maintenance-control"
+              className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+            >
+              {language === "vi" ? "Chế độ bảo trì" : "Maintenance mode"}
+            </Link>
+            <button
+              type="button"
+              onClick={resetForm}
+              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
+            >
+              {text.newUser}
+            </button>
+          </div>
         </div>
 
         {message ? (
