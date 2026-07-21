@@ -33,6 +33,7 @@ Required environment values are listed in `.env.local.example`.
 - [Redis](docs/redis.md)
 - [Reference](docs/reference.md)
 - [Security](docs/security.md)
+- [Maintenance mode](docs/maintenance.md)
 
 ## Production Notes
 

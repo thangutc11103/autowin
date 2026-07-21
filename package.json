@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "worker": "tsx scripts/worker.ts",
+    "maintenance": "tsx scripts/maintenance.ts",
+    "test:maintenance": "tsx --test tests/maintenance/state.test.ts tests/maintenance/service.test.ts tests/maintenance/policy.test.ts tests/maintenance/proxy.test.ts tests/maintenance/admin-api.test.ts tests/maintenance/access.test.ts tests/maintenance/cli.test.ts",
     "reset-admin-password": "tsx scripts/reset-admin-password.ts",
     "test:decodo-clean": "tsx scripts/test-decodo-clean.ts",
     "test:decodo-targets": "tsx scripts/test-decodo-targets.ts",
