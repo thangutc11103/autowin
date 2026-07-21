@@ -21,9 +21,9 @@ function createClient(): Redis {
     retryStrategy: () => null,
   });
 
-  client.on("error", (error) => {
-    console.warn(`[maintenance] Redis client error: ${error.message}`);
-  });
+  // The service emits a rate-limited warning. This listener only prevents
+  // ioredis from treating an expected connection failure as unhandled.
+  client.on("error", () => undefined);
   return client;
 }
 

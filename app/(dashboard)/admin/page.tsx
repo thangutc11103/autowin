@@ -324,22 +324,33 @@ export default function AdminPage() {
               {text.description}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href="/maintenance-control"
-              className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
-            >
-              {language === "vi" ? "Chế độ bảo trì" : "Maintenance mode"}
-            </Link>
-            <button
-              type="button"
-              onClick={resetForm}
-              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
-            >
-              {text.newUser}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={resetForm}
+            className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
+          >
+            {text.newUser}
+          </button>
         </div>
+
+        <Link
+          href="/maintenance-control"
+          className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2"
+        >
+          <span>
+            <span className="block text-sm font-bold">
+              {language === "vi" ? "Chế độ bảo trì website" : "Website maintenance mode"}
+            </span>
+            <span className="mt-0.5 block text-sm text-amber-800">
+              {language === "vi"
+                ? "Bật, tắt và chỉnh nội dung hiển thị cho khách truy cập."
+                : "Enable, disable, and edit the message shown to visitors."}
+            </span>
+          </span>
+          <span className="text-sm font-bold">
+            {language === "vi" ? "Mở điều khiển" : "Open controls"}
+          </span>
+        </Link>
 
         {message ? (
           <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">

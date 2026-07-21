@@ -13,10 +13,12 @@ function toLocalInput(value: string | null): string {
 
 function formatTimestamp(value: string | null): string {
   if (!value) return "Chưa đặt thời gian";
+  const date = new Date(value);
+  if (date.getTime() === 0) return "Chưa có lần cập nhật";
   return new Intl.DateTimeFormat("vi-VN", {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(value));
+  }).format(date);
 }
 
 async function readError(response: Response): Promise<string> {

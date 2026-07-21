@@ -6,8 +6,8 @@ import {
 } from "@/lib/maintenance/service";
 
 async function main(): Promise<void> {
-  dotenv.config({ path: ".env.local", override: false });
-  dotenv.config({ path: ".env", override: false });
+  dotenv.config({ path: ".env.local", override: false, quiet: true });
+  dotenv.config({ path: ".env", override: false, quiet: true });
 
   const service = getMaintenanceService();
   process.exitCode = await runMaintenanceCli(process.argv.slice(2), {
