@@ -342,6 +342,16 @@ export async function getCurrentUser(
     return null;
   }
 
+  return getCurrentUserBySessionToken(sessionToken);
+}
+
+export async function getCurrentUserBySessionToken(
+  sessionToken: string,
+): Promise<CurrentUser | null> {
+  if (!sessionToken.trim()) {
+    return null;
+  }
+
   await ensureSessionStorage();
   const tokenHash = hashToken(sessionToken);
 
